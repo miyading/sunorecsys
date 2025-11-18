@@ -1,0 +1,39 @@
+# Default configuration for hybrid recommender
+
+recommender:
+  item_weight: 0.25
+  prompt_weight: 0.20
+  genre_weight: 0.20
+  user_weight: 0.25
+  quality_weight: 0.10
+  quality_threshold: 0.3
+  use_quality_filter: true
+
+embeddings:
+  model_name: "all-MiniLM-L6-v2"
+  cache_dir: "models/embeddings"
+
+item_based:
+  tag_weight: 0.4
+  prompt_weight: 0.4
+  metadata_weight: 0.2
+  n_trees: 50
+
+user_based:
+  factors: 50
+  regularization: 0.1
+  iterations: 15
+  alpha: 40.0
+
+quality_filter:
+  threshold: 0.3
+  use_engagement_heuristic: true
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: false
+
+evaluation:
+  k_values: [5, 10, 20, 50]
+

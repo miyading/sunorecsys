@@ -1,0 +1,20 @@
+{
+  "total_songs": 234,
+  "unique_users": 164,
+  "date_range": {
+    "min": "2025-09-05 19:23:21.320000",
+    "max": "2025-11-13 02:42:10.069000"
+  },
+  "genres": {
+    "pop": 74,
+    "rock": 48,
+    "electronic": 43,
+    "hip hop": 28,
+    "country": 8,
+    "metal": 6,
+    "r&b": 6,
+    "classical": 3,
+    "jazz": 2,
+    "reggae": 1
+  }
+}

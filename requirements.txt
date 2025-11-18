@@ -1,0 +1,47 @@
+# Core dependencies
+numpy  # Version will be determined by dependencies
+pandas>=2.0.0
+scikit-learn  # Version will be determined by dependencies
+scipy>=1.10.0
+
+# Embeddings and ML
+sentence-transformers>=2.2.0
+torch==2.2.2
+torchaudio
+torchvision==0.17.2
+transformers>=4.30.0
+
+# Audio processing (for audio embeddings with CLAP)
+librosa>=0.10.0
+soundfile>=0.12.0
+torchlibrosa==0.1.0
+# CLAP for audio embeddings
+laion-clap
+audiobox_aesthetics
+
+# Recommendation systems
+implicit>=0.5.0  # For collaborative filtering
+annoy>=1.17.0  # For fast similarity search
+
+# Data processing
+tqdm  # Version will be determined by dependencies
+python-dotenv>=1.0.0  # dotenv
+pyarrow>=10.0.0  # For parquet support
+
+# API and serving
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+
+# Caching and storage
+redis>=5.0.0
+h5py>=3.9.0
+
+# Evaluation
+recmetrics
+
+# Utilities
+pyyaml>=6.0
+joblib>=1.3.0
+schedule>=1.2.0  # For weekly update scheduling
+
