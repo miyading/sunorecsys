@@ -72,7 +72,10 @@ class UserBasedRecommender(BaseRecommender):
             self._build_matrix_from_playlists(playlists)
         elif use_simulated_interactions:
             # Use simulated interactions (better for CF)
+            # If playlists provided, use them as real interaction data first, then simulate additional
             print("  → using simulated interactions...")
+            if playlists:
+                print("  → Will use playlists as real interaction data, then simulate additional interactions")
             print("  → This may take a moment for large datasets...")
             (
                 self.user_item_matrix,
@@ -82,7 +85,7 @@ class UserBasedRecommender(BaseRecommender):
                 self.idx_to_song_id,
             ) = get_user_item_matrix(
                 songs_df,
-                playlists=None,
+                playlists=playlists,  # Pass playlists if provided
                 use_simulation=True,
                 interaction_rate=kwargs.get('interaction_rate', 0.15),
                 item_cold_start_rate=kwargs.get('item_cold_start_rate', 0.05),
@@ -299,29 +302,31 @@ class UserBasedRecommender(BaseRecommender):
             similar_users[user_idx] = -np.inf  # Exclude self
             top_user_indices = np.argsort(similar_users)[::-1][:self.top_k_similar_users]
             
-            # Discover Weekly style: For each similar user, find top-k items
-            all_candidates = {}  # item_idx -> list of (similarity, user_idx)
+            # Get similarity scores for top-k similar users
+            similar_user_indices = []
+            sims = []
+            all_candidates = set()  # Collect all candidate item indices (n*k items)
+            user_item_mapping = {}  # Store mapping for display: similar_user_idx -> liked_song_ids
+            item_to_source_user = {}  # Track which similar user's last-n each item came from (for display)
             
             for similar_user_idx in top_user_indices:
                 user_similarity = float(similar_users[similar_user_idx])
                 if user_similarity <= 0:
                     continue
                 
+                similar_user_indices.append(similar_user_idx)
+                sims.append(user_similarity)
+                
                 # Get similar user's ID
                 similar_user_id = self.idx_to_user_id[similar_user_idx]
                 
-                # Get last n interacted items for this similar user (CORRECT LOGIC)
+                # Get last n interacted items for this similar user
                 liked_item_indices, liked_song_ids = self._get_user_last_n_items(
                     similar_user_id, 
                     self.last_n_per_user
                 )
-                # Store mapping for later lookup (original order before filtering)
-                if not hasattr(self, '_user_item_mapping'):
-                    self._user_item_mapping = {}
-                self._user_item_mapping[similar_user_idx] = liked_song_ids
-                
-                # Create mapping from item_idx to position in original last n items
-                item_idx_to_position = {idx: pos for pos, idx in enumerate(liked_item_indices)}
+                # Store mapping for later lookup
+                user_item_mapping[similar_user_idx] = liked_song_ids
                 
                 # Exclude items the target user already liked
                 filtered_item_indices = [idx for idx in liked_item_indices if idx not in user_liked_items]
@@ -332,50 +337,79 @@ class UserBasedRecommender(BaseRecommender):
                 # Take top-k items from last n (most recent first)
                 top_items = filtered_item_indices[:self.top_k_per_similar_user]
                 
+                # Record which similar user each item came from (for display)
                 for item_idx in top_items:
-                    if item_idx not in all_candidates:
-                        all_candidates[item_idx] = []
-                    # Store: (user_similarity, similar_user_idx, item_position)
-                    # item_position is the position in the original last n items (before filtering)
-                    item_position = item_idx_to_position.get(item_idx, 0)
-                    all_candidates[item_idx].append((user_similarity, similar_user_idx, item_position))
+                    all_candidates.add(item_idx)
+                    # If this item hasn't been seen yet, or if this user has higher similarity, record it
+                    if item_idx not in item_to_source_user:
+                        # Find the position of this item in the last-n list
+                        item_position = None
+                        source_song_id = None
+                        song_id = self.idx_to_song_id.get(item_idx)
+                        if song_id and song_id in liked_song_ids:
+                            item_position = liked_song_ids.index(song_id)
+                            source_song_id = song_id
+                        
+                        item_to_source_user[item_idx] = {
+                            'similar_user_idx': similar_user_idx,
+                            'similar_user_id': similar_user_id,
+                            'item_position': item_position,
+                            'source_song_id': source_song_id,
+                        }
             
-            # Aggregate scores: weighted sum of similarities from all similar users that recommend this item
-            # Score = Σ sim(user, userj) × like(userj, item) for all similar users j
+            # Convert to numpy arrays for efficient computation
+            similar_user_indices = np.array(similar_user_indices)
+            sims = np.array(sims)
+            candidates = np.array(list(all_candidates))
+            
+            # Calculate scores using the correct formula: score = Σ sim(u, userj) × like(userj, item)
             item_scores = {}
             item_to_source = {}  # Track which similar user's which last-n item recommended this (for display)
             
-            for item_idx, similarities_list in all_candidates.items():
-                # Calculate weighted sum: Σ sim(user, userj) for all users j that recommend this item
-                # This is the correct formula: score = Σ sim(user, userj) × like(userj, item)
-                weighted_sum = sum([s[0] for s in similarities_list])  # Sum of similarities
-                item_scores[item_idx] = weighted_sum
+            for item_idx in candidates:
+                # Get binary like values for this item from all similar users
+                # user_item_matrix: (num_users, num_items) CSR
+                # Get the column for this item_idx, rows for similar_user_indices
+                likes = self.user_item_matrix[similar_user_indices, item_idx].toarray().flatten()  # 0/1
                 
-                # For display: find the similar user with highest similarity that contributed this item
-                # (This is just for showing which user's last-n item this came from)
-                best_similarity = -1
-                best_similar_user_idx = None
-                best_item_position = None
+                # Calculate score: Σ sim(u, userj) × like(userj, item)
+                score = float((sims * likes).sum())
+                item_scores[item_idx] = score
                 
-                for item in similarities_list:
-                    if len(item) == 3:
-                        user_similarity, similar_user_idx, item_position = item
-                    else:
-                        user_similarity, similar_user_idx = item
-                        item_position = 0
-                    
-                    # Choose the user with highest similarity (for display purposes)
-                    if user_similarity > best_similarity:
-                        best_similarity = user_similarity
-                        best_similar_user_idx = similar_user_idx
-                        best_item_position = item_position
-                
-                if best_similar_user_idx is not None:
-                    similar_user_id = self.idx_to_user_id.get(best_similar_user_idx)
+                # For display: use the source user from recall stage (the user whose last-n actually contributed this item)
+                if item_idx in item_to_source_user:
+                    source_info = item_to_source_user[item_idx]
                     item_to_source[item_idx] = {
-                        'similar_user_id': similar_user_id,
-                        'item_position': best_item_position,  # Position in last n items
+                        'similar_user_id': source_info['similar_user_id'],
+                        'item_position': source_info['item_position'],
+                        'source_song_id': source_info['source_song_id'],
                     }
+                elif likes.sum() > 0:  # Fallback: if not found in recall tracking, use highest similarity
+                    # This shouldn't happen if recall logic is correct, but keep as fallback
+                    liked_mask = likes > 0
+                    if liked_mask.any():
+                        liked_sims = sims[liked_mask]
+                        liked_user_indices = similar_user_indices[liked_mask]
+                        best_idx = np.argmax(liked_sims)
+                        best_similar_user_idx = liked_user_indices[best_idx]
+                        
+                        # Find which last-n item this was (for display)
+                        best_item_position = None
+                        source_song_id = None
+                        if best_similar_user_idx in user_item_mapping:
+                            liked_song_ids = user_item_mapping[best_similar_user_idx]
+                            # Get the item's song_id to find its position
+                            song_id = self.idx_to_song_id.get(item_idx)
+                            if song_id and song_id in liked_song_ids:
+                                best_item_position = liked_song_ids.index(song_id)
+                                source_song_id = song_id
+                        
+                        similar_user_id = self.idx_to_user_id.get(best_similar_user_idx)
+                        item_to_source[item_idx] = {
+                            'similar_user_id': similar_user_id,
+                            'item_position': best_item_position,
+                            'source_song_id': source_song_id,
+                        }
             
             # Convert to recommendations
             recommendations = sorted(item_scores.items(), key=lambda x: x[1], reverse=True)
@@ -412,8 +446,12 @@ class UserBasedRecommender(BaseRecommender):
             # Find top-k similar users
             top_user_indices = np.argsort(user_similarities)[::-1][:self.top_k_similar_users]
             
-            # For each similar user, find top-k items
-            all_candidates = {}
+            # Get similarity scores for top-k similar users
+            similar_user_indices = []
+            sims = []
+            all_candidates = set()  # Collect all candidate item indices (n*k items)
+            user_item_mapping = {}  # Store mapping for display: similar_user_idx -> liked_song_ids
+            item_to_source_user = {}  # Track which similar user's last-n each item came from (for display)
             seed_indices = set(np.where(virtual_user > 0)[0])
             
             for similar_user_idx in top_user_indices:
@@ -421,21 +459,19 @@ class UserBasedRecommender(BaseRecommender):
                 if user_similarity <= 0:
                     continue
                 
+                similar_user_indices.append(similar_user_idx)
+                sims.append(user_similarity)
+                
                 # Get similar user's ID
                 similar_user_id = self.idx_to_user_id[similar_user_idx]
                 
-                # Get last n interacted items for this similar user (CORRECT LOGIC)
+                # Get last n interacted items for this similar user
                 liked_item_indices, liked_song_ids = self._get_user_last_n_items(
                     similar_user_id,
                     self.last_n_per_user
                 )
-                # Store mapping for later lookup (original order before filtering)
-                if not hasattr(self, '_user_item_mapping_virtual'):
-                    self._user_item_mapping_virtual = {}
-                self._user_item_mapping_virtual[similar_user_idx] = liked_song_ids
-                
-                # Create mapping from item_idx to position in original last n items
-                item_idx_to_position = {idx: pos for pos, idx in enumerate(liked_item_indices)}
+                # Store mapping for later lookup
+                user_item_mapping[similar_user_idx] = liked_song_ids
                 
                 # Exclude seed songs
                 filtered_item_indices = [idx for idx in liked_item_indices if idx not in seed_indices]
@@ -446,51 +482,79 @@ class UserBasedRecommender(BaseRecommender):
                 # Take top-k items from last n (most recent first)
                 top_items = filtered_item_indices[:self.top_k_per_similar_user]
                 
+                # Record which similar user each item came from (for display)
                 for item_idx in top_items:
-                    if item_idx not in all_candidates:
-                        all_candidates[item_idx] = []
-                    # Store: (user_similarity, similar_user_idx, item_position)
-                    # item_position is the position in the original last n items (before filtering)
-                    item_position = item_idx_to_position.get(item_idx, 0)
-                    all_candidates[item_idx].append((user_similarity, similar_user_idx, item_position))
+                    all_candidates.add(item_idx)
+                    # If this item hasn't been seen yet, record it
+                    if item_idx not in item_to_source_user:
+                        # Find the position of this item in the last-n list
+                        item_position = None
+                        source_song_id = None
+                        song_id = self.idx_to_song_id.get(item_idx)
+                        if song_id and song_id in liked_song_ids:
+                            item_position = liked_song_ids.index(song_id)
+                            source_song_id = song_id
+                        
+                        item_to_source_user[item_idx] = {
+                            'similar_user_idx': similar_user_idx,
+                            'similar_user_id': similar_user_id,
+                            'item_position': item_position,
+                            'source_song_id': source_song_id,
+                        }
             
-            # Aggregate scores: weighted sum of similarities from all similar users that recommend this item
-            # Score = Σ sim(user, userj) × like(userj, item) for all similar users j
+            # Convert to numpy arrays for efficient computation
+            similar_user_indices = np.array(similar_user_indices)
+            sims = np.array(sims)
+            candidates = np.array(list(all_candidates))
+            
+            # Calculate scores using the correct formula: score = Σ sim(u, userj) × like(userj, item)
             item_scores = {}
             item_to_source = {}  # Track which similar user's which last-n item recommended this (for display)
             
-            for item_idx, similarities_list in all_candidates.items():
-                # Calculate weighted sum: Σ sim(user, userj) for all users j that recommend this item
-                # Extract similarities and compute weighted sum (not mean)
-                similarities = [s[0] if isinstance(s, tuple) else s for s in similarities_list]
-                item_scores[item_idx] = sum(similarities)  # Sum, not mean
+            for item_idx in candidates:
+                # Get binary like values for this item from all similar users
+                # user_item_matrix: (num_users, num_items) CSR
+                # Get the column for this item_idx, rows for similar_user_indices
+                likes = self.user_item_matrix[similar_user_indices, item_idx].toarray().flatten()  # 0/1
                 
-                # For display: find the similar user with highest similarity that contributed this item
-                best_similarity = -1
-                best_similar_user_idx = None
-                best_item_position = None
+                # Calculate score: Σ sim(u, userj) × like(userj, item)
+                score = float((sims * likes).sum())
+                item_scores[item_idx] = score
                 
-                for item in similarities_list:
-                    if isinstance(item, tuple) and len(item) == 3:
-                        user_similarity, similar_user_idx, item_position = item
-                    elif isinstance(item, tuple) and len(item) == 2:
-                        user_similarity, similar_user_idx = item
-                        item_position = 0
-                    else:
-                        continue
-                    
-                    # Choose the user with highest similarity (for display purposes)
-                    if user_similarity > best_similarity:
-                        best_similarity = user_similarity
-                        best_similar_user_idx = similar_user_idx
-                        best_item_position = item_position
-                
-                if best_similar_user_idx is not None:
-                    similar_user_id = self.idx_to_user_id.get(best_similar_user_idx)
+                # For display: use the source user from recall stage (the user whose last-n actually contributed this item)
+                if item_idx in item_to_source_user:
+                    source_info = item_to_source_user[item_idx]
                     item_to_source[item_idx] = {
-                        'similar_user_id': similar_user_id,
-                        'item_position': best_item_position,
+                        'similar_user_id': source_info['similar_user_id'],
+                        'item_position': source_info['item_position'],
+                        'source_song_id': source_info['source_song_id'],
                     }
+                elif likes.sum() > 0:  # Fallback: if not found in recall tracking, use highest similarity
+                    # This shouldn't happen if recall logic is correct, but keep as fallback
+                    liked_mask = likes > 0
+                    if liked_mask.any():
+                        liked_sims = sims[liked_mask]
+                        liked_user_indices = similar_user_indices[liked_mask]
+                        best_idx = np.argmax(liked_sims)
+                        best_similar_user_idx = liked_user_indices[best_idx]
+                        
+                        # Find which last-n item this was (for display)
+                        best_item_position = None
+                        source_song_id = None
+                        if best_similar_user_idx in user_item_mapping:
+                            liked_song_ids = user_item_mapping[best_similar_user_idx]
+                            # Get the item's song_id to find its position
+                            song_id = self.idx_to_song_id.get(item_idx)
+                            if song_id and song_id in liked_song_ids:
+                                best_item_position = liked_song_ids.index(song_id)
+                                source_song_id = song_id
+                        
+                        similar_user_id = self.idx_to_user_id.get(best_similar_user_idx)
+                        item_to_source[item_idx] = {
+                            'similar_user_id': similar_user_id,
+                            'item_position': best_item_position,
+                            'source_song_id': source_song_id,
+                        }
             
             recommendations = sorted(item_scores.items(), key=lambda x: x[1], reverse=True)
             # Store item_to_source for details
@@ -534,27 +598,8 @@ class UserBasedRecommender(BaseRecommender):
                     source_info = temp_storage[song_idx]
                 
                 # Get the actual song_id from the similar user's last n items
-                source_song_id = None
-                if source_info:
-                    similar_user_idx_for_lookup = None
-                    # Find the user_idx for this similar_user_id
-                    for uid, uidx in self.user_id_to_idx.items():
-                        if uid == source_info.get('similar_user_id'):
-                            similar_user_idx_for_lookup = uidx
-                            break
-                    
-                    if similar_user_idx_for_lookup is not None:
-                        # Get the mapping
-                        user_mapping = None
-                        if hasattr(self, '_user_item_mapping') and similar_user_idx_for_lookup in self._user_item_mapping:
-                            user_mapping = self._user_item_mapping[similar_user_idx_for_lookup]
-                        elif hasattr(self, '_user_item_mapping_virtual') and similar_user_idx_for_lookup in self._user_item_mapping_virtual:
-                            user_mapping = self._user_item_mapping_virtual[similar_user_idx_for_lookup]
-                        
-                        if user_mapping and source_info.get('item_position') is not None:
-                            pos = source_info.get('item_position')
-                            if 0 <= pos < len(user_mapping):
-                                source_song_id = user_mapping[pos]
+                # source_song_id is now stored directly in item_to_source
+                source_song_id = source_info.get('source_song_id') if source_info else None
                 
                 details[song_id] = {
                     'user_cf_score': float(score),
@@ -570,10 +615,6 @@ class UserBasedRecommender(BaseRecommender):
                 delattr(self, '_temp_item_to_source')
             if hasattr(self, '_temp_item_to_source_virtual'):
                 delattr(self, '_temp_item_to_source_virtual')
-            if hasattr(self, '_user_item_mapping'):
-                delattr(self, '_user_item_mapping')
-            if hasattr(self, '_user_item_mapping_virtual'):
-                delattr(self, '_user_item_mapping_virtual')
         
         return self._format_recommendations(
             song_ids_list,

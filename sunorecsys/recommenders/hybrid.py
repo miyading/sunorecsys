@@ -182,11 +182,11 @@ class HybridRecommender(BaseRecommender):
                     # Get the specific song from similar user's last n items
                     source_rows = self.songs_df[self.songs_df['song_id'] == source_song_id]
                     if not source_rows.empty:
-                        source_title = source_rows.iloc[0].get('title', source_song_id)
-                        source_url = f"https://suno.com/song/{source_song_id}"
+                        # source_title = source_rows.iloc[0].get('title', source_song_id)
+                        # source_url = f"https://suno.com/song/{source_song_id}"
                         # Show which similar user and which song
-                        user_display = source_user_id[:12] + '...' if source_user_id and len(source_user_id) > 12 else (source_user_id or 'Unknown')
-                        print(f"        From similar user [{user_display}]'s last-n: [{source_title}]({source_url})")
+                        user_display = source_user_id if source_user_id else 'Unknown'
+                        print(f"        From similar user [{user_display}]'s last-n")
             
             elif channel_name == "Two-Tower" and 'seed_song_ids' in details:
                 seed_song_ids = details.get('seed_song_ids', [])

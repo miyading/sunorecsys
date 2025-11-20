@@ -55,7 +55,10 @@ class ItemBasedCFRecommender(BaseRecommender):
             self._build_matrix_from_playlists(playlists)
         elif use_simulated_interactions:
             # Use simulated interactions (better for CF)
+            # If playlists provided, use them as real interaction data first, then simulate additional
             print("  → using simulated interactions...")
+            if playlists:
+                print("  → Will use playlists as real interaction data, then simulate additional interactions")
             print("  → This may take a moment for large datasets...")
             (
                 self.user_item_matrix,
@@ -65,7 +68,7 @@ class ItemBasedCFRecommender(BaseRecommender):
                 self.idx_to_song_id,
             ) = get_user_item_matrix(
                 songs_df,
-                playlists=None,
+                playlists=playlists,  # Pass playlists if provided
                 use_simulation=True,
                 interaction_rate=kwargs.get('interaction_rate', 0.15),
                 item_cold_start_rate=kwargs.get('item_cold_start_rate', 0.05),
