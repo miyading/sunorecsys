@@ -175,6 +175,8 @@ class TwoTowerRecommender(BaseRecommender):
             seed_song_ids = song_ids
         else:
             # Fallback: return popular songs
+            if return_details:
+                print(f"  ⚠️  Two-Tower: No seed songs available! Falling back to popular songs")
             return self._get_popular_songs(n)
         
         # Get user embedding: average of seed songs' CLAP embeddings
@@ -185,6 +187,8 @@ class TwoTowerRecommender(BaseRecommender):
         ]
         
         if not seed_indices:
+            if return_details:
+                print(f"  ⚠️  Two-Tower: None of the {len(seed_song_ids)} seed songs found! Falling back to popular songs")
             return self._get_popular_songs(n)
         
         # Compute user embedding as average of seed song features
@@ -225,6 +229,12 @@ class TwoTowerRecommender(BaseRecommender):
         top_indices = top_indices[valid_mask]
         top_similarities = top_similarities[valid_mask]
         
+        # If no valid recommendations found, return popular songs
+        if len(top_indices) == 0:
+            if return_details:
+                print(f"⚠️  Two-Tower: No valid recommendations found. Falling back to popular songs")
+            return self._get_popular_songs(n)
+            
         # Format results
         results = []
         seen_song_ids = set()

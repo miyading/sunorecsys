@@ -79,6 +79,57 @@ def main():
     
     print("✅ Recommender fitted successfully")
     
+    # Initialize user history from user-item matrix (includes both playlist and simulated interactions)
+    print("\n📊 Initializing user history from user-item interaction matrix...")
+    from datetime import datetime, timedelta
+    import numpy as np
+    history_manager = recommender.history_manager
+    if history_manager:
+        # Option 1: Use user-item matrix (includes playlist + simulated interactions)
+        # This gives richer user history for recommendations
+        use_matrix_interactions = True  # Set to False to use only playlist songs
+        
+        if use_matrix_interactions and recommender.item_cf_recommender and hasattr(recommender.item_cf_recommender, 'user_item_matrix'):
+            # Extract interactions from user-item matrix (includes simulated)
+            matrix = recommender.item_cf_recommender.user_item_matrix
+            user_id_to_idx = recommender.item_cf_recommender.user_id_to_idx
+            idx_to_user_id = recommender.item_cf_recommender.idx_to_user_id
+            song_id_to_idx = recommender.item_cf_recommender.song_id_to_idx
+            idx_to_song_id = recommender.item_cf_recommender.idx_to_song_id
+            
+            interactions_batch = []
+            for user_idx in range(matrix.shape[0]):
+                user_id = idx_to_user_id.get(user_idx)
+                if not user_id:
+                    continue
+                
+                # Get all songs this user interacted with (from matrix)
+                user_row = matrix[user_idx].toarray().flatten()
+                interacted_song_indices = np.where(user_row > 0)[0]
+                
+                # Add interactions with timestamps spread over the last few days
+                for i, song_idx in enumerate(interacted_song_indices):
+                    song_id = idx_to_song_id.get(song_idx)
+                    if song_id:
+                        timestamp = datetime.now() - timedelta(days=len(interacted_song_indices) - i)
+                        interactions_batch.append((user_id, song_id, timestamp, 1.0, 'play'))
+            
+            history_manager.add_interactions_batch(interactions_batch)
+            print(f"✅ Initialized history from matrix: {len(user_id_to_idx)} users ({len(interactions_batch)} interactions, includes simulated)")
+        else:
+            # Option 2: Use only playlist songs (original behavior)
+            interactions_batch = []
+            user_counts = songs_df.groupby('user_id').size()
+            for user_id, count in user_counts.items():
+                user_songs = songs_df[songs_df['user_id'] == user_id]['song_id'].tolist()
+                # Add interactions with timestamps spread over the last few days
+                for i, song_id in enumerate(user_songs):
+                    timestamp = datetime.now() - timedelta(days=len(user_songs) - i)
+                    interactions_batch.append((user_id, song_id, timestamp, 1.0, 'play'))
+            
+            history_manager.add_interactions_batch(interactions_batch)
+            print(f"✅ Initialized history from playlists only: {len(user_counts)} users ({len(interactions_batch)} interactions)")
+    
     # Step 3: User-based recommendations (using last-n interactions)
     print("\n[Step 3] User-based recommendations (using last-n interactions)")
     print("-" * 80)

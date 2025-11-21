@@ -229,6 +229,8 @@ class ItemBasedCFRecommender(BaseRecommender):
             raise ValueError("Recommender not fitted. Call fit() first.")
         
         if not song_ids:
+            if return_details:
+                print(f"  ⚠️  Item-Based CF: No seed songs provided! Falling back to popular songs")
             return self._get_popular_songs(n)
         
         # Check for cold-start items in seed songs
@@ -287,6 +289,12 @@ class ItemBasedCFRecommender(BaseRecommender):
                     # Store: (similarity, seed_idx) - seed_idx tells us which seed song found this
                     all_candidates[item_idx].append((similarity, seed_idx))
         
+        # Check if we found any candidates
+        if len(all_candidates) == 0:
+            if return_details:
+                print(f"⚠️  Item-Based CF: No similar items found for seed songs. Falling back to popular songs")
+            return self._get_popular_songs(n)
+        
         # Aggregate scores: weighted sum according to Item CF formula
         # Formula: Predicted user interest = Σ like(user, item_j) × sim(item_j, item_new)
         # For last-n interacted items, like(user, item_j) = 1, so:
@@ -324,6 +332,10 @@ class ItemBasedCFRecommender(BaseRecommender):
         results.sort(key=lambda x: x[1], reverse=True)
         cold_start_results.sort(key=lambda x: x[1], reverse=True)
         
+        # Warn if no results after filtering
+        if len(results) == 0 and return_details:
+            print(f"⚠️  Item-Based CF: Found {len(all_candidates)} candidates but all were filtered out")
+        
         # If we don't have enough results and have content fallback, use it for cold-start items
         if len(results) < n and cold_start_results and content_fallback:
             # Get content-based recommendations for cold-start items
@@ -343,6 +355,13 @@ class ItemBasedCFRecommender(BaseRecommender):
         
         # Take top N
         results = results[:n]
+        
+        # Debug: Check if we're falling back to popular songs
+        if len(results) == 0:
+            if return_details:
+                print(f"⚠️  Warning: Item-Based CF has no valid results after filtering")
+                print(f"   Falling back to popular songs")
+            return self._get_popular_songs(n)
         
         # Prepare details if requested
         details = None

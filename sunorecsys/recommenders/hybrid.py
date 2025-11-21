@@ -387,6 +387,8 @@ class HybridRecommender(BaseRecommender):
                 song_ids = interactions
                 if return_details:
                     print(f"📊 Using {len(interactions)} last-n interactions for user {user_id}")
+            elif return_details:
+                print(f"⚠️  No interactions found for user {user_id}")
         
         # Exclude seed songs from recommendations (self-similarity = 1 is not informative)
         seed_song_ids = set(song_ids) if song_ids else set()
