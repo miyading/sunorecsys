@@ -91,6 +91,22 @@ User: 000fefc6-d99e-41c9-b77e-f58b6689fc76 (has 3 songs)
         Score: 0.5774
         Genre: Reggae
         From user history: [Solely "Suno"](https://suno.com/song/29a54268-b653-48c3-8b72-f35a8f4577b2)
+     2. Aeon
+        Score: 0.5774
+        Genre: retro electro cyberpunk
+        From user history: [Upside Down Frown](https://suno.com/song/789f275d-58dc-46d3-8d46-7bbc327f9739)
+     3. Air Flows
+        Score: 0.5164
+        Genre: orchestra
+        From user history: [End of the night](https://suno.com/song/8abce29f-432a-4935-addb-fce7835a1c25)
+     4. Hum 💋-> Trumpet 📯
+        Score: 0.5000
+        Genre: unknown
+        From user history: [How Much Wood? #TTChallenge](https://suno.com/song/0d48e1ea-121c-449b-ab61-59432be3fc1c)
+     5. 「戦後の寝室 (After the War)」98-3, Our Bedroom After the War (Remix)
+        Score: 0.5000
+        Genre: 80s Japanese enka track with 8-bit chiptune
+        From user history: [How Much Wood? #TTChallenge](https://suno.com/song/0d48e1ea-121c-449b-ab61-59432be3fc1c)
 
 [Recall Channel 2] User-Based CF...
   ✅ Retrieved 30 candidates from User-Based CF
@@ -100,9 +116,43 @@ User: 000fefc6-d99e-41c9-b77e-f58b6689fc76 (has 3 songs)
         Score: 0.3248
         Genre: Electro-pop
         From similar user [8466026c-0b76-4cb0-8209-2564e8c0ff65]'s last-n
+     2. ひかりの岸辺
+        Score: 0.3162
+        Genre: Bouzouki-based Rebetiko
+        From similar user [d361b865-bc5c-4239-9afa-0c810bdd4b6e]'s last-n
+     3. Make Round Thing
+        Score: 0.3112
+        Genre: tribal
+        From similar user [e642bb49-03ea-4135-b461-fde312773129]'s last-n
+     4. Tango with Mangoes #TTChallenge
+        Score: 0.3112
+        Genre: Wabbajack
+        From similar user [2226f57a-3073-49ea-9381-d4edd39d4d24]'s last-n
+     5. 醉打蔣門神
+        Score: 0.3089
+        Genre: heavy metal
+        From similar user [2226f57a-3073-49ea-9381-d4edd39d4d24]'s last-n
 
 [Recall Channel 3] Two-Tower Content Retrieval (CLAP-based)...
   ✅ Retrieved 30 candidates from Two-Tower
+
+  📊 Top 5 Two-Tower Recommendations:
+     1. dialectic (accept it)
+        Score: -0.4579
+        Genre: post-indietronica
+        From user history (average query): [The Fight Of Our Lives], [Last Door Left], [Upside Down Frown]
+     2. Ain't Got a Nickel Ain't Got a Dime
+        Score: -0.5239
+        Genre: up tempo Memphis soul
+     3. ポートフォリオ
+        Score: -0.5465
+        Genre: J Hip Hop
+     4. Golden Sunshine 윤아
+        Score: -0.5571
+        Genre: bossa nova
+     5. Bossa Jazz A Cappella
+        Score: -0.5636
+        Genre: a cappella
 
 📊 Recall Summary: 86 unique candidates retrieved
 
@@ -128,7 +178,7 @@ User: 000fefc6-d99e-41c9-b77e-f58b6689fc76 (has 3 songs)
 
 ✅ Final Recommendations: 4 songs selected
 
-Top 10 Recommendations:
+Top Recommendations:
 
  1. ビタミンガール！　果物と (https://suno.com/song/4a48a0c2-ad17-4963-9ddc-b506b268ecf8)
      Score: 0.3329
@@ -162,6 +212,17 @@ Top 10 Recommendations:
        - DIN (CTR Prediction): 0.3199
        - Prompt-based: 0.0000
      Genre: orchestra
+
+ 4. Доторкнутися до любові    #Поезія_Птасі  #TTChallenge (https://suno.com/song/23342062-b394-431f-985f-24eebf84e958)
+     Score: 0.3197
+     Stage: Stage 1 (Recall)
+     Primary Channel: Channel 2 (User-Based CF)
+     Recall Channel Scores:
+       - user_cf: 0.0500
+     Fine Ranking Scores:
+       - DIN (CTR Prediction): 0.3197
+       - Prompt-based: 0.0000
+     Genre: Hypnotic
 
 [Step 4] Statistics
    Score range: [0.3197, 0.3329]
