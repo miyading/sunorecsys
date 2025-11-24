@@ -1,27 +1,97 @@
-# Discover Weekly Implementation Guide
+# Discover Weekly Implementation & System Design
 
 ## Overview
 
-This system implements a Discover Weekly-style recommendation system similar to Spotify, with weekly updates and user interaction history management.
+This system implements a Discover Weekly-style recommendation system similar to Spotify, with weekly updates and user interaction history management. The system employs a multi-stage hybrid architecture for music recommendation that uniquely leverages the characteristics of AI music generation platforms.
 
-## Key Features
+## System Design Summary
 
-### 1. User History Management (`user_history.py`)
+The system employs a multi-stage hybrid architecture for music recommendation that uniquely leverages the characteristics of AI music generation platforms. In the recall stage, Channel 3 (Two-Tower) uses CLAP audio embeddings for content retrieval, while Channel 6 (Prompt-Based) in the fine ranking stage uses CLAP text embeddings of user generation prompts to capture creative intent—a signal unique to AI music platforms where prompts directly generate music. By using CLAP's aligned text-audio embedding space, prompt embeddings can be directly compared with audio embeddings without cross-modal alignment, enabling unified similarity search that matches user creative intent with audio characteristics. This design allows the prompt-based and CLAP-based channels to potentially be combined into a single multi-modal content channel, as both operate in the same aligned embedding space. The system also implements a Deep Interest Network (DIN) in the fine ranking stage for CTR prediction, using attention mechanisms to aggregate user's historical track embeddings and predict click-through rates for candidate tracks. This attention-based aggregation shares the same architectural principles that could be applied to hierarchical embedding aggregation (tracks → artists), addressing the research question of representing higher-level embeddings from lower-level ones through learned aggregation strategies beyond simple averaging.
 
-- **Last-n interactions**: Tracks last N interactions per user (default: 50)
-- **Weekly mixing**: 
+### Key Design Features
+
+1. **Multi-Modal Alignment**: CLAP provides aligned text-audio embeddings, enabling direct similarity between prompts and audio
+2. **DIN for CTR Prediction**: Attention-based aggregation of user history for personalized ranking
+3. **Hierarchical Aggregation Potential**: Same attention mechanism can aggregate tracks → artists
+4. **AI Music Platform Specificity**: Leverages prompt-based creative intent as a unique signal
+5. **Unified Embedding Space**: Text and audio embeddings in same space enable unified content-based retrieval
+
+---
+
+## Four-Stage Architecture
+
+### ✅ Stage 1 (Recall): Candidate Retrieval
+
+**Status**: ✅ **COMPLETE**
+
+- ✅ **Channel 1: Item-based CF** - User-item interaction matrix based similarity (top-k per seed)
+- ✅ **Channel 2: User-based CF** - Matrix factorization (ALS) based on user-item interactions  
+- ✅ **Channel 3: Two-tower model** - CLAP-based content retrieval (audio embeddings)
+
+**Implementation Details**:
+- Item-based CF uses precomputed item-item similarity matrix
+- User-based CF uses ALS matrix factorization
+- Two-tower model uses CLAP audio embeddings for content retrieval
+- All channels support last-n interactions for Discover Weekly style
+
+### ✅ Stage 2 (Coarse Ranking): Quality Filter
+
+**Status**: ✅ **COMPLETE**
+
+- ✅ **Channel 4: Quality filter** - Engagement-based quality scoring
+
+**Implementation Details**:
+- Filters songs below quality threshold (default: 0.3)
+- Uses engagement metrics (plays, upvotes, comments)
+- Currently uses heuristic-based scoring
+- ⚠️ **TODO**: Integrate Meta Audiobox Aesthetics for better quality scoring
+
+### ✅ Stage 3 (Fine Ranking): CTR Prediction
+
+**Status**: ✅ **COMPLETE**
+
+- ✅ **Channel 5: DIN with attention** - CTR prediction using user history
+- ✅ **Channel 6: Prompt-based similarity** - CLAP text embeddings (aligned with audio)
+
+**Implementation Details**:
+- DIN uses attention to aggregate user's historical track embeddings
+- Predicts click-through rate for candidate tracks
+- Prompt-based uses CLAP text embeddings (aligned with audio space)
+- Both operate in the same CLAP embedding space
+
+### ⚠️ Stage 4 (Re-ranking): Final Ranking
+
+**Status**: ⚠️ **PARTIAL** (Optional, computationally intensive)
+
+- ⚠️ **Music Flamingo** - Optional re-ranking (disabled by default)
+
+**Implementation Details**:
+- Music Flamingo integration exists but is disabled by default
+- Can be enabled with `use_music_flamingo=True`
+- Computationally intensive, only used on top candidates
+- ⚠️ **TODO**: Optimize Music Flamingo integration for production use
+
+---
+
+## Discover Weekly Features
+
+### ✅ Completed Features
+
+#### 1. **User History Management** (`user_history.py`)
+
+- ✅ **Last-n interactions**: Tracks last N interactions per user (default: 50)
+- ✅ **Weekly mixing**: 
   - If user has no interactions this week → use all historical interactions
   - If user has interactions this week → 50% historical + 50% this week's new interactions
-- **Weighted interactions**: Supports play counts and other interaction weights
-- **Weekly updates**: Models update every Monday (configurable)
+- ✅ **Weighted interactions**: Supports play counts and other interaction weights
+- ✅ **Weekly updates**: Models update every Monday (configurable)
 
-### 2. Item-Based CF (Discover Weekly Style)
+#### 2. **Item-Based CF (Discover Weekly Style)**
 
-**Current Implementation:**
 - ✅ Precomputed item-item similarity matrix
 - ✅ User-to-item indexing
 - ✅ Weighted similarity (if play counts available)
-- ✅ Top-k per seed song, then deduplicate
+- ✅ Top-k per seed song, then deduplicate (default: k=5)
 - ✅ Weekly model updates
 
 **How it works:**
@@ -30,12 +100,13 @@ This system implements a Discover Weekly-style recommendation system similar to 
 3. Aggregate scores across all seed songs
 4. Deduplicate and return top N items
 
-### 3. Other Channels
+#### 3. **All Channels Support Last-N**
 
-**Item Content-Based & Prompt-Based:**
-- ✅ Support `use_last_n` parameter
-- ✅ Can use user history if provided
-- ✅ Default uses last-n interactions for Discover Weekly style
+- ✅ **Item-Based CF**: Uses last-n interactions as seed songs
+- ✅ **Item Content-Based**: Default uses last-n (`use_last_n=True`)
+- ✅ **Prompt-Based**: Default uses last-n (`use_last_n=True`)
+- ✅ **User-Based CF**: Uses user_id directly for recommendations
+- ✅ **Two-Tower**: Uses last-n CLAP embeddings for user representation
 
 ---
 
@@ -65,26 +136,7 @@ recommendations = recommender.recommend(
 )
 ```
 
-#### 2. **All Channels Default to Last-N**
-
-**Item-Based CF:**
-- ✅ Uses last-n interactions as seed songs
-- ✅ Top-k-per-seed=5 (finds top-5 similar for each seed song)
-- ✅ Deduplicates and returns top items
-- ✅ Supports weighted similarity (if play counts available)
-
-**Item Content-Based:**
-- ✅ Default uses last-n (`use_last_n=True`)
-- ✅ Uses embedding similarity (content-based)
-
-**Prompt-Based:**
-- ✅ Default uses last-n (`use_last_n=True`)
-- ✅ Uses prompt embedding similarity (content-based)
-
-**User-Based CF:**
-- ✅ Uses user_id directly for recommendations (doesn't need seed songs)
-
-#### 3. **Weekly Automatic Updates**
+#### 2. **Weekly Automatic Updates**
 
 **Created `weekly_update.py` script:**
 - Checks if update is needed (every Monday)
@@ -215,8 +267,9 @@ item_cf.recommend(
 ### Other Channels ✅
 
 - **Item Content-Based**: Uses embedding similarity, defaults to last-n
-- **Prompt-Based**: Uses prompt similarity, defaults to last-n
+- **Prompt-Based**: Uses CLAP text embeddings (aligned with audio), defaults to last-n
 - **User-Based CF**: Uses collaborative similarity, based on user_id
+- **Two-Tower**: Uses CLAP audio embeddings, averages user's last-n tracks
 
 ---
 
@@ -229,7 +282,7 @@ item_cf.recommend(
 - `last_n=50` (default number of interactions to track)
 
 **Modify Configuration:**
-   ```python
+```python
 recommender = HybridRecommender(
     use_last_n=True,  # Enable last-n
 )
@@ -256,14 +309,14 @@ recommendations = recommender.recommend(user_id=user_id, n=10)
 ```
 
 ### Weekly Model Updates
-   ```python
+```python
 # Runs automatically every Monday
 python weekly_update.py
 
 # Or check manually if update is needed
-   if history_manager.should_update_models():
+if history_manager.should_update_models():
     recommender.fit(songs_df)  # Retrain
-   ```
+```
 
 ---
 
@@ -310,22 +363,16 @@ sunorecsys/
 │   ├── hybrid.py                # Integrated with UserHistoryManager
 │   ├── item_cf.py               # Top-k-per-seed=5, weighted similarity
 │   ├── item_content_based.py    # Default use_last_n=True
-│   └── prompt_based.py          # Default use_last_n=True
+│   ├── prompt_based.py          # Default use_last_n=True, CLAP text embeddings
+│   ├── two_tower_recommender.py # CLAP audio embeddings
+│   ├── din_ranker.py            # DIN for CTR prediction
+│   └── user_based.py            # User-based CF
 ├── utils/
+│   ├── clap_embeddings.py        # CLAP audio & text embeddings
+│   ├── music_flamingo_quality.py # Music Flamingo integration
 │   └── weekly_update.py         # Weekly update scheduler
 ├── weekly_update.py             # Executable update script
 └── discover_weekly_example.py   # Complete example
 ```
 
 ---
-
-## Summary
-
-All core features are implemented! The system now:
-- ✅ Automatically uses last-n interactions
-- ✅ Supports weekly mixing (50/50 historical + this week)
-- ✅ Top-k-per-seed=5 for Item-CF
-- ✅ Weekly automatic updates
-- ✅ All channels default to using last-n
-
-Ready for production use!

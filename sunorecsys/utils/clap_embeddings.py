@@ -23,7 +23,10 @@ except ImportError:
 
 
 # Default CLAP model path
-DEFAULT_CLAP_MODEL_PATH = 'load/clap_score/music_audioset_epoch_15_esc_90.14.pt'
+DEFAULT_CLAP_MODEL_PATH = 'sunorecsys/load/clap_score/music_audioset_epoch_15_esc_90.14.pt'
+
+# Module-level cache for CLAP models (shared across all embedders)
+_CLAP_MODEL_CACHE = {}
 
 
 class AudioFileDataset(Dataset):
@@ -244,9 +247,36 @@ def compute_audio_embeddings_clap(
     return embeddings
 
 
+def _get_clap_model(model_path: str = DEFAULT_CLAP_MODEL_PATH, device: Optional[str] = None):
+    """
+    Get or initialize CLAP model (shared cache across all embedders).
+    
+    Args:
+        model_path: Path to CLAP model file
+        device: Device to use ('cuda', 'cpu', or None for auto-detect)
+    
+    Returns:
+        CLAP model instance or None if initialization failed
+    """
+    cache_key = (model_path, device)
+    
+    if cache_key not in _CLAP_MODEL_CACHE:
+        model = initialize_clap_model(model_path, device)
+        if model is not None:
+            _CLAP_MODEL_CACHE[cache_key] = model
+        else:
+            return None
+    
+    return _CLAP_MODEL_CACHE.get(cache_key)
+
+
 class CLAPAudioEmbedder:
     """
     CLAP-based audio embedder for the RecSys.
+    
+    CLAP (Contrastive Language-Audio Pretraining) provides audio embeddings
+    in a shared embedding space with text, enabling cross-modal similarity search.
+    
     Integrates with existing audio caching infrastructure.
     """
     
@@ -261,7 +291,7 @@ class CLAPAudioEmbedder:
         Initialize CLAP audio embedder.
         
         Args:
-            model_path: Path to CLAP model file
+            model_path: Path to CLAP model file (defaults to DEFAULT_CLAP_MODEL_PATH)
             cache_dir: Directory for audio cache and embeddings
             device: Device to use ('cuda', 'cpu', or None for auto-detect)
             batch_size: Batch size for processing
@@ -287,12 +317,12 @@ class CLAPAudioEmbedder:
     
     def initialize_model(self) -> bool:
         """
-        Initialize the CLAP model.
+        Initialize the CLAP model (uses shared module-level cache).
         
         Returns:
             True if initialization successful, False otherwise
         """
-        self.model = initialize_clap_model(self.model_path, self.device)
+        self.model = _get_clap_model(self.model_path, self.device)
         return self.model is not None
     
     def _get_audio_path(self, audio_url: str, song_id: str) -> Optional[Path]:
@@ -563,6 +593,7 @@ class CLAPAudioEmbedder:
         
         print(f"✅ Saved {len(embeddings)} embeddings to {file_path}")
     
+    
     def load_embeddings(self, file_path: str) -> Dict[str, np.ndarray]:
         """
         Load embeddings from a JSON file.
@@ -583,6 +614,213 @@ class CLAPAudioEmbedder:
         }
         
         print(f"✅ Loaded {len(embeddings)} embeddings from {file_path}")
+        return embeddings
+
+
+class CLAPTextEmbedder:
+    """
+    CLAP-based text embedder for the RecSys.
+    
+    CLAP (Contrastive Language-Audio Pretraining) provides text embeddings
+    in a shared embedding space with audio, enabling cross-modal similarity search
+    between prompts and audio tracks.
+    
+    Uses the same CLAP model checkpoint as CLAPAudioEmbedder for aligned embeddings.
+    """
+    
+    def __init__(
+        self,
+        model_path: str = DEFAULT_CLAP_MODEL_PATH,
+        cache_dir: str = "data/audio_cache",
+        device: Optional[str] = None,
+        batch_size: int = 16
+    ):
+        """
+        Initialize CLAP text embedder.
+        
+        Args:
+            model_path: Path to CLAP model file (defaults to DEFAULT_CLAP_MODEL_PATH, same as CLAPAudioEmbedder)
+            cache_dir: Directory for text embedding cache
+            device: Device to use ('cuda', 'cpu', or None for auto-detect)
+            batch_size: Batch size for processing
+        """
+        self.model_path = model_path
+        self.cache_dir = Path(cache_dir)
+        self.text_embedding_cache_dir = self.cache_dir / "clap_text_embeddings"
+        self.text_embedding_cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.device = device
+        self.batch_size = batch_size
+        self.model = None
+    
+    def initialize_model(self) -> bool:
+        """
+        Initialize the CLAP model (uses shared module-level cache).
+        
+        Returns:
+            True if initialization successful, False otherwise
+        """
+        self.model = _get_clap_model(self.model_path, self.device)
+        return self.model is not None
+    
+    def _get_text_embedding_cache_path(self, text: str) -> Path:
+        """Get cache path for text embedding"""
+        text_hash = hashlib.md5(text.encode()).hexdigest()
+        return self.text_embedding_cache_dir / f"{text_hash}.pkl"
+    
+    def embed_text(
+        self,
+        text: str,
+        use_cache: bool = True
+    ) -> Optional[np.ndarray]:
+        """
+        Compute CLAP text embedding for a single text string.
+        
+        CLAP provides aligned text and audio embeddings in a shared space,
+        enabling direct similarity search between prompts and audio tracks.
+        
+        Uses the official CLAP API: model.get_text_embedding([text], use_tensor=True)
+        
+        Args:
+            text: Text string (e.g., generation prompt)
+            use_cache: Whether to use cached embedding
+        
+        Returns:
+            CLAP text embedding as numpy array, or None if failed
+        """
+        if self.model is None:
+            if not self.initialize_model():
+                return None
+        
+        # Check cache
+        if use_cache:
+            cache_path = self._get_text_embedding_cache_path(text)
+            if cache_path.exists():
+                try:
+                    return joblib.load(cache_path)
+                except Exception as e:
+                    print(f"Warning: Failed to load cached text embedding: {e}")
+        
+        try:
+            # Use official CLAP API: model.get_text_embedding(text_data, use_tensor=True)
+            # Reference: https://github.com/LAION-AI/CLAP
+            text_embed = self.model.get_text_embedding([text], use_tensor=True)
+            
+            # Convert to numpy
+            if isinstance(text_embed, torch.Tensor):
+                text_embed = text_embed.cpu().numpy()
+            
+            # Extract single embedding (batch size 1)
+            if len(text_embed) > 0:
+                embedding = text_embed[0].flatten()
+            else:
+                return None
+            
+            # Cache embedding
+            if use_cache:
+                cache_path = self._get_text_embedding_cache_path(text)
+                try:
+                    joblib.dump(embedding, cache_path)
+                except Exception as e:
+                    print(f"Warning: Failed to cache text embedding: {e}")
+            
+            return embedding
+        except Exception as e:
+            print(f"Warning: Failed to compute CLAP text embedding: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def embed_texts(
+        self,
+        texts: List[str],
+        use_cache: bool = True,
+        show_progress: bool = True
+    ) -> Dict[str, np.ndarray]:
+        """
+        Compute CLAP text embeddings for multiple texts.
+        
+        Uses the official CLAP API: model.get_text_embedding(text_data, use_tensor=True)
+        
+        Args:
+            texts: List of text strings
+            use_cache: Whether to use cached embeddings
+            show_progress: Whether to show progress bar
+        
+        Returns:
+            Dictionary mapping text to embedding
+        """
+        if self.model is None:
+            if not self.initialize_model():
+                return {}
+        
+        embeddings = {}
+        texts_to_process = []
+        
+        # Check cache and collect texts to process
+        for text in texts:
+            if use_cache:
+                cache_path = self._get_text_embedding_cache_path(text)
+                if cache_path.exists():
+                    try:
+                        embeddings[text] = joblib.load(cache_path)
+                        continue
+                    except Exception:
+                        pass
+            
+            texts_to_process.append(text)
+        
+        if not texts_to_process:
+            return embeddings
+        
+        # Process in batches
+        try:
+            use_tqdm = show_progress
+            if show_progress:
+                try:
+                    from tqdm import tqdm
+                except ImportError:
+                    use_tqdm = False
+            
+            iterator = tqdm(range(0, len(texts_to_process), self.batch_size), desc="Computing CLAP text embeddings") if use_tqdm else range(0, len(texts_to_process), self.batch_size)
+            
+            with torch.no_grad():
+                for batch_start in iterator:
+                    batch_end = min(batch_start + self.batch_size, len(texts_to_process))
+                    batch_texts = texts_to_process[batch_start:batch_end]
+                    
+                    try:
+                        # Use official CLAP API: model.get_text_embedding(text_data, use_tensor=True)
+                        # Reference: https://github.com/LAION-AI/CLAP
+                        text_embed = self.model.get_text_embedding(batch_texts, use_tensor=True)
+                        
+                        # Convert to numpy
+                        if isinstance(text_embed, torch.Tensor):
+                            text_embed = text_embed.cpu().numpy()
+                        
+                        # Store embeddings
+                        for text, emb in zip(batch_texts, text_embed):
+                            if emb is not None:
+                                emb = emb.flatten()
+                                embeddings[text] = emb
+                                
+                                # Cache
+                                if use_cache:
+                                    cache_path = self._get_text_embedding_cache_path(text)
+                                    try:
+                                        joblib.dump(emb, cache_path)
+                                    except Exception as e:
+                                        print(f"Warning: Failed to cache text embedding: {e}")
+                    except Exception as e:
+                        print(f"Warning: Failed to process text batch: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
+        except Exception as e:
+            print(f"Warning: Failed to compute CLAP text embeddings: {e}")
+            import traceback
+            traceback.print_exc()
+        
         return embeddings
 
 

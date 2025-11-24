@@ -1,4 +1,9 @@
-"""Prompt-based similarity recommender"""
+"""Prompt-based similarity recommender using CLAP text embeddings.
+
+Leverages CLAP's aligned text-audio embedding space to enable direct similarity
+search between user prompts and audio tracks, capturing creative intent unique
+to AI music generation platforms.
+"""
 
 import numpy as np
 import pandas as pd
@@ -10,31 +15,45 @@ import hashlib
 
 from .base import BaseRecommender
 from ..utils.embeddings import TextEmbedder, PromptEmbedder
+from ..utils.clap_embeddings import CLAPTextEmbedder, DEFAULT_CLAP_MODEL_PATH
 
 
 class PromptBasedRecommender(BaseRecommender):
     """
-    Recommender based on generation prompt similarity.
+    Recommender based on generation prompt similarity using CLAP text embeddings.
     
     This is unique to music generation models - users who like songs
     generated from similar prompts may enjoy similar music.
+    
+    Uses CLAP's aligned text-audio embedding space, enabling direct similarity
+    between prompts and audio content without cross-modal alignment.
     """
     
     def __init__(
         self,
-        embedding_model: str = 'all-MiniLM-L6-v2',
+        use_clap: bool = True,  # Use CLAP text embeddings (aligned with audio)
+        embedding_model: str = 'all-MiniLM-L6-v2',  # Fallback if CLAP not available
+        clap_model_path: Optional[str] = None,
+        clap_cache_dir: str = "data/audio_cache",
         n_trees: int = 50,
     ):
         super().__init__("PromptBased")
+        self.use_clap = use_clap
         self.embedding_model = embedding_model
         self.n_trees = n_trees
         
         self.prompt_embedder = None
+        self.clap_text_embedder = None
         self.songs_df = None
         self.prompt_embeddings = None
         self.song_index = None
         self.song_id_to_idx = {}
         self.idx_to_song_id = {}
+        self.embedding_dim = None
+        
+        # CLAP settings
+        self.clap_model_path = clap_model_path
+        self.clap_cache_dir = clap_cache_dir
     
     def fit(self, songs_df: pd.DataFrame, user_history: Optional[Dict[str, List[str]]] = None, **kwargs):
         """
@@ -46,12 +65,36 @@ class PromptBasedRecommender(BaseRecommender):
         self.songs_df = songs_df.copy()
         self.user_history = user_history or {}  # Store for last-n support
         
-        print(f"  → Initializing prompt embedder (model: {self.embedding_model})...")
-        # Initialize embedder
-        base_embedder = TextEmbedder(self.embedding_model)
-        self.prompt_embedder = PromptEmbedder(base_embedder)
+        # Initialize embedder (CLAP or fallback)
+        if self.use_clap:
+            print(f"  → Initializing CLAP text embedder (aligned with audio embeddings)...")
+            try:
+                # Get model path (use default if not provided)
+                clap_model_path = self.clap_model_path or kwargs.get('clap_model_path') or DEFAULT_CLAP_MODEL_PATH
+                
+                # Create CLAP text embedder (shares model via module-level cache)
+                self.clap_text_embedder = CLAPTextEmbedder(
+                    model_path=clap_model_path,
+                    cache_dir=self.clap_cache_dir,
+                    device=kwargs.get('device')
+                )
+                if not self.clap_text_embedder.initialize_model():
+                    print(f"  ⚠️  CLAP model initialization failed, falling back to text embeddings")
+                    self.use_clap = False
+                else:
+                    # CLAP embedding dimension (typically 512)
+                    # We'll determine this from the first embedding
+                    self.embedding_dim = None  # Will be determined from first embedding
+                    print(f"  ✅ CLAP text embedder ready (aligned with audio space)")
+            except Exception as e:
+                print(f"  ⚠️  CLAP not available ({e}), falling back to text embeddings")
+                self.use_clap = False
         
-        embedding_dim = base_embedder.embedding_dim
+        if not self.use_clap:
+            print(f"  → Initializing prompt embedder (model: {self.embedding_model})...")
+            base_embedder = TextEmbedder(self.embedding_model)
+            self.prompt_embedder = PromptEmbedder(base_embedder)
+            self.embedding_dim = base_embedder.embedding_dim
         
         # Check for cached prompt embeddings
         cache_dir = kwargs.get('cache_dir', 'data/cache')
@@ -60,10 +103,11 @@ class PromptBasedRecommender(BaseRecommender):
         song_ids_sorted = sorted(songs_df['song_id'].tolist())
         
         if use_cache:
-            # Generate cache key from song_ids and prompts
+            # Generate cache key from song_ids, prompts, and embedder type
             prompts_str = '|'.join(songs_df['prompt'].fillna('').tolist())
+            embedder_id = 'CLAP' if self.use_clap else self.embedding_model
             cache_key = hashlib.md5(
-                (','.join(song_ids_sorted) + '|' + prompts_str + '|' + self.embedding_model).encode()
+                (','.join(song_ids_sorted) + '|' + prompts_str + '|' + embedder_id).encode()
             ).hexdigest()
             
             cache_dir_path = Path(cache_dir)
@@ -93,7 +137,42 @@ class PromptBasedRecommender(BaseRecommender):
         if self.prompt_embeddings is None:
             print(f"  → Generating prompt embeddings for {len(songs_df)} songs...")
             prompts = songs_df['prompt'].fillna('').tolist()
-            self.prompt_embeddings = self.prompt_embedder.embed_prompts(prompts, show_progress=True)
+            
+            if self.use_clap and self.clap_text_embedder:
+                # Use CLAP text embeddings (aligned with audio)
+                print(f"     Using CLAP text embeddings (aligned with audio space)...")
+                clap_text_embeddings = self.clap_text_embedder.embed_texts(
+                    prompts,
+                    use_cache=True,
+                    show_progress=True
+                )
+                
+                # Convert to numpy array (aligned with songs_df order)
+                prompt_emb_list = []
+                for prompt in prompts:
+                    if prompt in clap_text_embeddings:
+                        prompt_emb_list.append(clap_text_embeddings[prompt])
+                    else:
+                        # Fallback: use zero vector if embedding failed
+                        if self.embedding_dim is None:
+                            # Try to get dimension from first successful embedding
+                            if clap_text_embeddings:
+                                first_emb = next(iter(clap_text_embeddings.values()))
+                                self.embedding_dim = len(first_emb)
+                            else:
+                                self.embedding_dim = 512  # Default CLAP dimension
+                        prompt_emb_list.append(np.zeros(self.embedding_dim))
+                
+                self.prompt_embeddings = np.array(prompt_emb_list)
+                
+                # Set embedding_dim if not set
+                if self.embedding_dim is None and len(self.prompt_embeddings) > 0:
+                    self.embedding_dim = self.prompt_embeddings.shape[1]
+            else:
+                # Fallback to text embeddings
+                self.prompt_embeddings = self.prompt_embedder.embed_prompts(prompts, show_progress=True)
+                if self.embedding_dim is None:
+                    self.embedding_dim = self.prompt_embeddings.shape[1]
             
             # Save to cache
             if use_cache and cache_path:
@@ -112,7 +191,9 @@ class PromptBasedRecommender(BaseRecommender):
         # Build Annoy index
         print(f"  → Building Annoy prompt similarity index (n_trees={self.n_trees})...")
         print(f"     Adding {len(songs_df)} items to index...")
-        self.song_index = AnnoyIndex(embedding_dim, 'angular')
+        if self.embedding_dim is None:
+            self.embedding_dim = self.prompt_embeddings.shape[1]
+        self.song_index = AnnoyIndex(self.embedding_dim, 'angular')
         
         # Try to use tqdm if available for progress
         try:
@@ -273,7 +354,9 @@ class PromptBasedRecommender(BaseRecommender):
         
         joblib.dump({
             'name': self.name,
+            'use_clap': self.use_clap,
             'embedding_model': self.embedding_model,
+            'embedding_dim': self.embedding_dim,
             'n_trees': self.n_trees,
             'song_id_to_idx': self.song_id_to_idx,
             'idx_to_song_id': self.idx_to_song_id,
@@ -288,22 +371,26 @@ class PromptBasedRecommender(BaseRecommender):
         data = joblib.load(path)
         
         recommender = cls(
-            embedding_model=data['embedding_model'],
+            use_clap=data.get('use_clap', True),
+            embedding_model=data.get('embedding_model', 'all-MiniLM-L6-v2'),
             n_trees=data['n_trees'],
         )
         
+        recommender.embedding_dim = data.get('embedding_dim', recommender.prompt_embeddings.shape[1] if 'prompt_embeddings' in data else None)
         recommender.song_id_to_idx = data['song_id_to_idx']
         recommender.idx_to_song_id = data['idx_to_song_id']
         recommender.songs_df = data['songs_df']
         recommender.prompt_embeddings = data['prompt_embeddings']
         
         if Path(data['index_path']).exists():
-            embedding_dim = recommender.prompt_embeddings.shape[1]
+            embedding_dim = data.get('embedding_dim', recommender.prompt_embeddings.shape[1])
             recommender.song_index = AnnoyIndex(embedding_dim, 'angular')
             recommender.song_index.load(data['index_path'])
         
-        base_embedder = TextEmbedder(recommender.embedding_model)
-        recommender.prompt_embedder = PromptEmbedder(base_embedder)
+        # Reinitialize embedder if needed
+        if not recommender.use_clap:
+            base_embedder = TextEmbedder(recommender.embedding_model)
+            recommender.prompt_embedder = PromptEmbedder(base_embedder)
         
         recommender.is_fitted = True
         

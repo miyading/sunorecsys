@@ -198,7 +198,10 @@ def main():
         recommender.history_manager = history_manager  # Re-attach history manager
     else:
         print("🔧 Creating new recommender...")
-        recommender = HybridRecommender(history_manager=history_manager)
+        recommender = HybridRecommender(
+            history_manager=history_manager,
+            din_model_path="models/din_ranker.pt",  # Path to trained DIN model (if available)
+        )
         recommender.fit(songs_df)
     
     # Create scheduler and run update if needed

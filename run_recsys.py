@@ -57,8 +57,9 @@ def main():
         quality_threshold=0.3,
         use_quality_filter=True,
         # Stage 3 (Fine Ranking) weights
-        din_weight=0.70,            # Channel 5: DIN with attention (placeholder)
+        din_weight=0.70,            # Channel 5: DIN with attention (CTR prediction)
         prompt_weight=0.30,         # Channel 6: Prompt-based (user exploration)
+        din_model_path="models/din_ranker.pt",  # Path to trained DIN model
         # Stage 4 (Re-ranking) - Music Flamingo (optional)
         use_music_flamingo=False,
         # Component toggles
@@ -176,7 +177,7 @@ def main():
             if 'din_score' in rec or 'prompt_score' in rec:
                 print(f"     Fine Ranking Scores:")
                 if 'din_score' in rec:
-                    print(f"       - DIN (placeholder): {rec['din_score']:.4f}")
+                    print(f"       - DIN (CTR Prediction): {rec['din_score']:.4f}")
                 if 'prompt_score' in rec:
                     print(f"       - Prompt-based: {rec['prompt_score']:.4f}")
             

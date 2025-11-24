@@ -140,12 +140,20 @@ def main():
     # Step 4: Train recommender (with integrated history manager)
     print("\n🔧 Training recommender...")
     recommender = HybridRecommender(
-        item_cf_weight=0.25,
-        item_content_weight=0.30,
-        prompt_weight=0.20,
-        user_weight=0.20,
-        quality_weight=0.05,
+        # Stage 1 (Recall) weights
+        item_cf_weight=0.25,        # Channel 1: Item-based CF
+        user_cf_weight=0.20,        # Channel 2: User-based CF
+        two_tower_weight=0.30,     # Channel 3: Two-tower content retrieval
+        # Stage 2 (Coarse Ranking)
+        quality_threshold=0.3,
+        use_quality_filter=True,
+        # Stage 3 (Fine Ranking) weights
+        din_weight=0.70,           # Channel 5: DIN with attention (CTR prediction)
+        prompt_weight=0.30,        # Channel 6: Prompt-based (user exploration)
+        din_model_path="models/din_ranker.pt",  # Path to trained DIN model
+        # Component toggles
         use_user_cf=True,
+        use_two_tower=True,
         history_manager=history_manager,  # Integrated history manager
         use_last_n=True,  # Default: use last-n interactions
     )

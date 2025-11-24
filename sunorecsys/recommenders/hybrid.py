@@ -12,6 +12,7 @@ from .prompt_based import PromptBasedRecommender
 from .user_based import UserBasedRecommender
 from .quality_filter import QualityFilter
 from .two_tower_recommender import TwoTowerRecommender
+from .din_ranker import DINRanker
 from ..data.user_history import UserHistoryManager
 from ..utils.music_flamingo_quality import MusicFlamingoQualityScorer
 
@@ -29,11 +30,14 @@ class HybridRecommender(BaseRecommender):
     - Channel 4: Quality filter
     
     Stage 3 (Fine Ranking): CTR Prediction
-    - Channel 5: DIN with attention (placeholder for future implementation)
-    - Channel 6: Prompt-based similarity (user exploration of recently interested styles)
+    - Channel 5: DIN with attention (CTR prediction using user history)
+    - Channel 6: Prompt-based similarity using CLAP text embeddings (aligned with audio)
     
     Stage 4 (Re-ranking): Final Ranking
     - Music Flamingo (optional, computationally intensive)
+    
+    Note: CLAP provides aligned text-audio embeddings, enabling direct similarity
+    between prompts and audio tracks without cross-modal alignment.
     """
     
     def __init__(
@@ -47,8 +51,9 @@ class HybridRecommender(BaseRecommender):
         use_quality_filter: bool = True,
         quality_scores_file: Optional[str] = None,
         # Stage 3 (Fine Ranking) weights
-        din_weight: float = 0.70,          # Channel 5: DIN with attention (placeholder)
+        din_weight: float = 0.70,          # Channel 5: DIN with attention (CTR prediction)
         prompt_weight: float = 0.30,        # Channel 6: Prompt-based (user exploration)
+        din_model_path: Optional[str] = None,  # Path to trained DIN model (optional)
         # Stage 4 (Re-ranking)
         use_music_flamingo: bool = False,
         music_flamingo_model_id: str = "nvidia/music-flamingo-hf",
@@ -74,6 +79,7 @@ class HybridRecommender(BaseRecommender):
         # Stage 3 (Fine Ranking) weights
         self.din_weight = din_weight
         self.prompt_weight = prompt_weight
+        self.din_model_path = din_model_path
         # Stage 4 (Re-ranking)
         self.use_music_flamingo = use_music_flamingo
         self.music_flamingo_model_id = music_flamingo_model_id
@@ -99,7 +105,7 @@ class HybridRecommender(BaseRecommender):
         # Stage 2 (Coarse Ranking)
         self.quality_filter = None
         # Stage 3 (Fine Ranking)
-        self.din_model = None  # Placeholder for future DIN implementation
+        self.din_ranker = None  # DIN ranker for CTR prediction
         self.prompt_recommender = None
         # Stage 4 (Re-ranking)
         self.music_flamingo_scorer = None
@@ -308,22 +314,31 @@ class HybridRecommender(BaseRecommender):
         print("STAGE 3: FINE RANKING - CTR Prediction")
         print("="*80)
         
-        # Channel 5: DIN with attention (placeholder for future implementation)
+        # Channel 5: DIN with attention (CTR prediction)
         print("\n" + "-"*80)
         print("[Fine Ranking Channel 5] DIN with Attention (CTR Prediction)")
         print("-"*80)
-        print("  ⚠️  DIN model not yet implemented - will use coarse ranking scores")
-        self.din_model = None  # Placeholder
-        print("  ✅ DIN placeholder ready (using coarse ranking scores)")
+        print("  → Initializing DIN ranker...")
+        self.din_ranker = DINRanker(
+            model_path=self.din_model_path,
+            clap_embeddings_path=self.two_tower_clap_path,
+            device=self.device
+        )
+        self.din_ranker.fit(songs_df, user_history=user_history, **kwargs)
+        
         
         # Channel 6: Prompt-based similarity (user exploration)
         print("\n" + "-"*80)
         print("[Fine Ranking Channel 6] Prompt-Based Similarity (User Exploration)")
         print("-"*80)
-        print("  → Building prompt similarity index...")
-        self.prompt_recommender = PromptBasedRecommender()
+        print("  → Building prompt similarity index using CLAP text embeddings...")
+        self.prompt_recommender = PromptBasedRecommender(
+            use_clap=True,  # Use CLAP text embeddings (aligned with audio)
+            clap_model_path=kwargs.get('clap_model_path'),
+            clap_cache_dir=kwargs.get('clap_cache_dir', 'data/audio_cache')
+        )
         self.prompt_recommender.fit(songs_df, user_history=user_history, **kwargs)
-        print("  ✅ Prompt-Based ready")
+        print("  ✅ Prompt-Based ready (using CLAP aligned embeddings)")
         
         # ========================================================================
         # STAGE 4: RE-RANKING - Music Flamingo
@@ -346,7 +361,7 @@ class HybridRecommender(BaseRecommender):
         print("Architecture:")
         print("  Stage 1 (Recall): Item CF, User CF, Two-Tower")
         print("  Stage 2 (Coarse Ranking): Quality Filter")
-        print("  Stage 3 (Fine Ranking): DIN (placeholder), Prompt-Based")
+        print("  Stage 3 (Fine Ranking): DIN (CTR Prediction), Prompt-Based")
         print("  Stage 4 (Re-ranking): Music Flamingo" + (" (enabled)" if self.use_music_flamingo else " (disabled)"))
     
     def recommend(
@@ -599,10 +614,9 @@ class HybridRecommender(BaseRecommender):
             print("🎯 STAGE 3: FINE RANKING - CTR Prediction")
             print("="*80)
         
-        # Channel 5: DIN with attention (placeholder - not yet implemented)
+        # Channel 5: DIN with attention (CTR prediction)
         if return_details:
             print("\n[Fine Ranking Channel 5] DIN with Attention (CTR Prediction)...")
-            print("  ⚠️  DIN model not yet implemented, using recall scores as baseline")
         
         # Channel 6: Prompt-based similarity (user exploration)
         if return_details:
@@ -624,6 +638,23 @@ class HybridRecommender(BaseRecommender):
         # Create prompt score map
         prompt_scores = {rec['song_id']: rec['score'] for rec in prompt_recs}
         
+        # Predict CTR using DIN for all candidates
+        if self.din_ranker and self.din_ranker.is_fitted:
+            if hasattr(self.din_ranker, 'model_trained') and self.din_ranker.model_trained:
+                din_ctr_scores = self.din_ranker.predict_ctr(
+                    user_id=user_id,
+                    candidate_song_ids=top_candidate_ids,
+                    max_history=50
+                )
+            else:
+                # DIN not trained: use recall scores as fallback
+                if return_details:
+                    print(f"  ⚠️  DIN model not trained, using recall scores as fallback")
+                din_ctr_scores = {c['song_id']: c['recall_score'] for c in top_candidates_for_fine}
+        else:
+            # Fallback: use recall scores
+            din_ctr_scores = {c['song_id']: c['recall_score'] for c in top_candidates_for_fine}
+        
         # Apply fine ranking scores
         fine_scores = []
         for candidate in top_candidates_for_fine:
@@ -632,8 +663,9 @@ class HybridRecommender(BaseRecommender):
             # Get prompt score (for user exploration)
             prompt_score = prompt_scores.get(song_id, 0.0) * self.prompt_weight
             
-            # DIN score (placeholder - using recall score for now)
-            din_score = candidate['recall_score'] * self.din_weight
+            # DIN CTR score
+            ctr_score = din_ctr_scores.get(song_id, 0.5)  # Default CTR if not predicted
+            din_score = ctr_score * self.din_weight
             
             # Combine fine ranking scores
             fine_score = din_score + prompt_score
@@ -648,6 +680,7 @@ class HybridRecommender(BaseRecommender):
                     'passed_quality_filter': True,
                 },
                 'fine_ranking_stage': {
+                    'din_ctr_score': ctr_score,
                     'din_score': din_score,
                     'prompt_score': prompt_score,
                     'total_score': fine_score,
@@ -657,6 +690,7 @@ class HybridRecommender(BaseRecommender):
             fine_scores.append({
                 **candidate,
                 'fine_score': fine_score,
+                'din_ctr_score': ctr_score,
                 'din_score': din_score,
                 'prompt_score': prompt_score,
                 'stage_channel_info': stage_channel_info,
@@ -666,7 +700,7 @@ class HybridRecommender(BaseRecommender):
         fine_scores.sort(key=lambda x: x['fine_score'], reverse=True)
         
         if return_details:
-            print(f"  ✅ Fine Ranking: {len(fine_scores)} candidates scored with DIN (placeholder) + Prompt")
+            print(f"  ✅ Fine Ranking: {len(fine_scores)} candidates scored with DIN (CTR prediction) + Prompt")
         
         # ========================================================================
         # STAGE 4: RE-RANKING - Music Flamingo
@@ -878,7 +912,7 @@ class HybridRecommender(BaseRecommender):
         
         # Stage 3 (Fine Ranking)
         self.prompt_recommender.save(f"{base_path}_prompt.pkl")
-        # DIN model placeholder - not yet implemented
+        # DIN model is saved separately (models/din_ranker.pt)
         
         # Save main config
         joblib.dump({
@@ -893,6 +927,7 @@ class HybridRecommender(BaseRecommender):
             # Stage 3 weights
             'din_weight': self.din_weight,
             'prompt_weight': self.prompt_weight,
+            'din_model_path': self.din_model_path,  # Save DIN model path
             # Component toggles
             'use_user_cf': self.use_user_cf,
             'use_two_tower': self.use_two_tower,
@@ -929,6 +964,7 @@ class HybridRecommender(BaseRecommender):
                 use_quality_filter=data['use_quality_filter'],
                 din_weight=data.get('din_weight', 0.70),
                 prompt_weight=data['prompt_weight'],
+                din_model_path=data.get('din_model_path', 'models/din_ranker.pt'),  # Load DIN model path
                 use_user_cf=data.get('use_user_cf', True),
                 use_two_tower=data.get('use_two_tower', True),
                 history_manager=history_manager,
@@ -944,6 +980,7 @@ class HybridRecommender(BaseRecommender):
                 use_quality_filter=data['use_quality_filter'],
                 din_weight=0.70,  # Default
                 prompt_weight=data['prompt_weight'],
+                din_model_path=data.get('din_model_path', 'models/din_ranker.pt'),  # Load DIN model path
                 use_user_cf=data.get('use_user_cf', True),
                 history_manager=history_manager,
                 use_last_n=data.get('use_last_n', True),
@@ -953,6 +990,7 @@ class HybridRecommender(BaseRecommender):
             recommender = cls(
                 item_cf_weight=data.get('item_weight', 0.30),
                 user_cf_weight=data.get('user_weight', 0.30),
+                din_model_path=data.get('din_model_path', 'models/din_ranker.pt'),  # Load DIN model path
                 two_tower_weight=0.40,
                 quality_threshold=data['quality_threshold'],
                 use_quality_filter=data['use_quality_filter'],
@@ -978,6 +1016,29 @@ class HybridRecommender(BaseRecommender):
         
         # Stage 3 (Fine Ranking)
         recommender.prompt_recommender = PromptBasedRecommender.load(f"{base_path}_prompt.pkl")
+        
+        # Load DIN ranker if model path is provided
+        if recommender.din_model_path:
+            print(f"  → Loading DIN ranker from {recommender.din_model_path}...")
+            recommender.din_ranker = DINRanker(
+                model_path=recommender.din_model_path,
+                clap_embeddings_path=recommender.two_tower_clap_path,
+                device=recommender.device
+            )
+            # Fit DIN ranker with loaded songs_df and user history from history_manager
+            user_history = {}
+            if recommender.history_manager:
+                # Build user_history in the same format as fit() method
+                for uid in recommender.history_manager.get_all_user_ids():
+                    interactions = recommender.history_manager.get_user_interactions(
+                        uid, 
+                        use_weekly_mixing=False  # Get all for model training
+                    )
+                    user_history[uid] = interactions
+            recommender.din_ranker.fit(recommender.songs_df, user_history=user_history)
+            print("  ✅ DIN ranker loaded")
+        else:
+            recommender.din_ranker = None
         
         recommender.is_fitted = True
         
