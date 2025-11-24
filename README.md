@@ -192,22 +192,22 @@ User Query (user_id or song_ids)
 [Stage 1: Recall] - Candidate Retrieval
     |---> Item-based CF
     |---> User-based CF 
-    +---> Two-tower CLAP 
+    |---> Two-tower CLAP 
     (weighted combination)
     |
     v
 [Stage 2: Coarse Ranking] - Quality Filter
-    +---> Quality filter 
+    |---> Quality filter 
     |
     v
 [Stage 3: Fine Ranking] - CTR Prediction
     |---> DIN with attention - CTR prediction
-    +---> Prompt-based CLAP - User exploration
+    |---> Prompt-based CLAP - User exploration
     (weighted combination)
     |
     v
 [Stage 4: Re-ranking] - Final Ranking (Optional)
-    +---> Music Flamingo (TODO)
+    |---> Music Flamingo (TODO)
     |
     v
 Final Recommendations
