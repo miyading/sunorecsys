@@ -1,6 +1,6 @@
 # Suno Music Recommender System
 
-![Discover Weekly UI](../playlist_ui/Discover_Weekly_UI.png)
+![Discover Weekly UI](playlist_ui/Discover_Weekly_UI.png)
 
 A production-ready hybrid music recommender system for Suno-generated music, inspired by Spotify's personalized recommendations and modern social media platforms (Instagram, LittleRedBook).
 
