@@ -1,7 +1,14 @@
 # Suno Music Recommender System
 
+![Discover Weekly UI](../playlist_ui/Discover_Weekly_UI.png)
+
 A production-ready hybrid music recommender system for Suno-generated music, inspired by Spotify's personalized recommendations and modern social media platforms (Instagram, LittleRedBook).
-## Architecture
+
+## UI Implementation
+
+The `index.html` in `../playlist_ui/` provides an interactive 3D music visualizer that transforms album covers into orbiting particle systems. Built with Three.js, it features a central vinyl record player and allows users to interact with floating album art to play tracks or open external links. The implementation uses WebGL shaders for particle effects, raycasting for 3D object selection, and simplex noise-based animations.
+
+## Recommender System Architecture
 
 The system implements a **four-stage hybrid architecture** for discover weekly music recommendation:
 
