@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify Discover - Final Fix</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Helvetica Neue', Arial, sans-serif; color: white; }
+        canvas { display: block; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; padding: 20px; box-sizing: border-box;
+        }
+
+        header { text-align: center; pointer-events: auto; z-index: 10; padding-top: 20px; }
+        h1 { font-size: 1.2rem; margin: 0; letter-spacing: 4px; font-weight: 300; opacity: 0.9; text-transform: uppercase; }
+        h2 { font-size: 0.7rem; color: #1DB954; letter-spacing: 2px; margin-top: 5px; text-transform: uppercase; }
+
+        #player-controls {
+            align-self: center; background: rgba(15,15,15,0.85); backdrop-filter: blur(20px);
+            padding: 20px 50px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.1);
+            text-align: center; pointer-events: auto; margin-bottom: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8); min-width: 320px;
+        }
+
+        button {
+            background: transparent; border: 1px solid rgba(255,255,255,0.2); color: white;
+            padding: 10px 30px; margin: 10px 10px; cursor: pointer;
+            border-radius: 30px; font-size: 0.75rem; transition: all 0.2s ease; 
+            text-transform: uppercase; letter-spacing: 2px;
+        }
+        button:hover { background: white; color: black; border-color: white; transform: scale(1.05); }
+        button#btn-play { background: #1DB954; border-color: #1DB954; color: black; font-weight: bold; }
+        
+        .track-info { margin-bottom: 20px; }
+        .track-title { font-weight: 500; display: block; font-size: 1.1rem; margin-bottom: 5px; letter-spacing: 0.5px; }
+        .track-artist { color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; }
+
+        #loading {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 999; transition: opacity 0.6s ease-out;
+        }
+        .loader { width: 50px; height: 1px; background: #222; position: relative; overflow: hidden; }
+        .loader::after { content:''; position: absolute; left:-50%; width: 50%; height: 100%; background: #fff; animation: load 1.2s infinite ease-in-out; }
+        @keyframes load { 0% { left: -50%; } 100% { left: 100%; } }
+    </style>
+</head>
+<body>
+
+    <div id="loading">
+        <div class="loader"></div>
+        <div style="margin-top:15px; font-size:10px; color:#555; letter-spacing: 1px;">RENDERING PARTICLES</div>
+    </div>
+
+    <div id="ui-layer">
+        <header>
+            <h1>Discover Weekly</h1>
+            <h2>Visualizer</h2>
+        </header>
+
+        <div id="player-controls">
+            <div class="track-info">
+                <span class="track-title">Select a Track</span>
+                <span class="track-artist">Orbiting Library</span>
+            </div>
+            <div>
+                <button id="btn-play">Play</button>
+            </div>
+        </div>
+    </div>
+
+    <audio id="audio-element" crossOrigin="anonymous" preload="auto"></audio>
+
+    <script type="x-shader/x-vertex" id="vertexShader">
+        uniform float uTime;
+        uniform float uHover; 
+        attribute float size;
+        attribute vec3 customColor;
+        varying vec3 vColor;
+
+        // Simplex Noise
+        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+        float snoise(vec3 v) {
+            const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+            const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+            vec3 i  = floor(v + dot(v, C.yyy) );
+            vec3 x0 = v - i + dot(i, C.xxx) ;
+            vec3 g = step(x0.yzx, x0.xyz);
+            vec3 l = 1.0 - g;
+            vec3 i1 = min( g.xyz, l.zxy );
+            vec3 i2 = max( g.xyz, l.zxy );
+            vec3 x1 = x0 - i1 + C.xxx;
+            vec3 x2 = x0 - i2 + C.yyy;
+            vec3 x3 = x0 - D.yyy;
+            i = mod289(i); 
+            vec4 p = permute( permute( permute( 
+                        i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                    + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+                    + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+            float n_ = 0.142857142857;
+            vec3  ns = n_ * D.wyz - D.xzx;
+            vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+            vec4 x_ = floor(j * ns.z);
+            vec4 y_ = floor(j - 7.0 * x_ );
+            vec4 x = x_ *ns.x + ns.yyyy;
+            vec4 y = y_ *ns.x + ns.yyyy;
+            vec4 h = 1.0 - abs(x) - abs(y);
+            vec4 b0 = vec4( x.xy, y.xy );
+            vec4 b1 = vec4( x.zw, y.zw );
+            vec4 s0 = floor(b0)*2.0 + 1.0;
+            vec4 s1 = floor(b1)*2.0 + 1.0;
+            vec4 sh = -step(h, vec4(0.0));
+            vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+            vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+            vec3 p0 = vec3(a0.xy,h.x);
+            vec3 p1 = vec3(a0.zw,h.y);
+            vec3 p2 = vec3(a1.xy,h.z);
+            vec3 p3 = vec3(a1.zw,h.w);
+            vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+            p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+            vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+            m = m * m;
+            return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
+        }
+
+        void main() {
+            vColor = customColor;
+            vec3 pos = position;
+            
+            // 1. Idle Wave
+            float noiseFreq = 0.4;
+            float noiseVal = snoise(vec3(pos.x * noiseFreq, pos.y * noiseFreq, uTime * 0.2));
+            pos.z += noiseVal * 0.3; 
+
+            // 2. Hover Interaction
+            if (uHover > 0.0) {
+                float hoverNoise = snoise(vec3(pos.x, pos.y, uTime));
+                pos.z += 1.5 * uHover + (hoverNoise * 0.5); 
+                pos.x += (pos.x * 0.05) * uHover;
+                pos.y += (pos.y * 0.05) * uHover;
+            }
+
+            vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+            float pointSize = size * (350.0 / -mvPosition.z);
+            gl_PointSize = clamp(pointSize, 0.0, 5.0); 
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    </script>
+
+    <script type="x-shader/x-fragment" id="fragmentShader">
+        varying vec3 vColor;
+        void main() {
+            float dist = length(gl_PointCoord - vec2(0.5));
+            if (dist > 0.5) discard;
+            float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+            gl_FragColor = vec4(vColor, alpha); 
+        }
+    </script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+
+    <script>
+        // --- CONFIGURATION ---
+        const TARGET_PIXELS = 180; 
+        
+        const textureCache = {}; 
+
+        // 你的新歌单配置
+        const playlist = [ 
+            { 
+                title: "Tiene Sabor, Tiene Sazón", 
+                artist: "Ondatrópica", 
+                link: "https://music.apple.com/us/song/tiene-sabor-tiene-saz%C3%B3n/1612406619?l=zh-Hans-CN", 
+                img: "./assets/covers/OD_ATRODICA.jpg" 
+            }, 
+            { 
+                title: "Nzala Urugu", 
+                artist: "Msafiri Zawose", 
+                link: "https://music.apple.com/us/song/nzala-urugu/1612407969?l=zh-Hans-CN", 
+                img: "./assets/covers/MSAFIRI_ZAWOSE.jpg" 
+            }, 
+            { 
+                title: "The Conservation of Energy", 
+                artist: "Vanishing Twin", 
+                link: "https://music.apple.com/us/song/the-conservation-of-energy/1612413562?l=zh-Hans-CN", 
+                img: "./assets/covers/Vanishing.jpg" 
+            }, 
+            { 
+                title: "Bones", 
+                artist: "The Circling Sun", 
+                link: "https://music.apple.com/us/song/bones/1677838379?l=zh-Hans-CN", 
+                img: "./assets/covers/THE_CIRCLING_SUN.jpg" 
+            }, 
+            { 
+                title: "Made of the Sun", 
+                artist: "The Heliocentrics", 
+                link: "https://music.apple.com/us/song/made-of-the-sun/1612407881?l=zh-Hans-CN", 
+                img: "./assets/covers/heliocentrics.png" 
+            }, 
+            { 
+                title: "Makoma Nnwom", 
+                artist: "Kwashibu Area Band", 
+                link: "https://music.apple.com/us/song/makoma-nnwom/1795051122?l=zh-Hans-CN", 
+                img: "./assets/covers/Kwashibu.jpg" 
+            }, 
+            { 
+                title: "Accra Jump", 
+                artist: "KonKoma", 
+                link: "https://music.apple.com/us/song/accra-jump/1612410169?l=zh-Hans-CN", 
+                img: "./assets/covers/ONOMR.jpg" 
+            }, 
+            { 
+                title: "Alegria", 
+                artist: "BATIDA", 
+                link: "https://soundwayrecords.com/release/155961-batida-batida", 
+                img: "./assets/covers/BATIDA.jpg" 
+            }, 
+            { 
+                title: "Ode ao Gato", 
+                artist: "Pedro Ricardo", 
+                link: "https://open.spotify.com/track/1BCECqTlNO1VXmzMijxZQC?si=53cb08cdf99249f4", 
+                img: "./assets/covers/SOPREM_BONS_VENTOS.jpg" 
+            }, 
+            { 
+                title: "My Church Song", 
+                artist: "GALDI", 
+                audio: "./assets/classical.wav", 
+                img: "./assets/covers/GALDI.JPEG" 
+            }
+        ];
+
+        // --- SETUP ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050505, 0.035);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 16; 
+        camera.lookAt(0,0,0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+        document.body.appendChild(renderer.domElement);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2(999, 999);
+
+        // --- OBJECTS ---
+        
+       // Initialize Texture Loader
+        const textureLoader = new THREE.TextureLoader();
+
+        // Load the image texture
+        // Make sure 'suno_vinyl.png' is in the correct directory relative to your HTML/JS file
+        const vinylTexture = textureLoader.load('./assets/suno_vinyl.png');
+
+        // Create geometry to hold the image.
+        // The original radius was 4.0, so the diameter (width and height) is 8.0.
+        const vinylGeometry = new THREE.PlaneGeometry(8.0, 8.0);
+
+        // Create material using the texture.
+        // MeshBasicMaterial is used so the image colors look exactly like the source file
+        // without being affected by scene lighting.
+        const vinylMaterial = new THREE.MeshBasicMaterial({
+            map: vinylTexture,
+            transparent: true, // Ensures the corners outside the circle are see-through
+            side: THREE.DoubleSide // Ensures visibility even if flipped
+        });
+
+        // Create the mesh
+        const vinylMesh = new THREE.Mesh(vinylGeometry, vinylMaterial);
+
+        // Note: We removed the 'vinylMesh.rotation.x = Math.PI / 2;' rotation.
+        // PlaneGeometry faces the camera by default in standard configurations.
+        // If it appears laying flat on the ground, uncomment the following line:
+        // vinylMesh.rotation.x = -Math.PI / 2;
+
+        // Create group (keeping existing structure) and add the mesh
+        const vinylGroup = new THREE.Group();
+        vinylGroup.add(vinylMesh);
+
+
+        // Keeping lighting in case other elements in the scene need it,
+        // though it won't affect the BasicMaterial of the vinyl anymore.
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        dirLight.position.set(5, 5, 20);
+        scene.add(dirLight);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+        // Add the group to the scene
+        scene.add(vinylGroup);
+        // --- PARTICLE ENGINE ---
+        const hitBoxes = []; // Optimized interaction layer
+        const particleSystems = [];
+
+        function createParticlesFromImage(image, index, total) {
+            const aspectRatio = image.width / image.height;
+            let pWidth, pHeight;
+            if (aspectRatio > 1) {
+                pWidth = TARGET_PIXELS;
+                pHeight = TARGET_PIXELS / aspectRatio;
+            } else {
+                pWidth = TARGET_PIXELS * aspectRatio;
+                pHeight = TARGET_PIXELS;
+            }
+
+            const tex = new THREE.CanvasTexture(image);
+            textureCache[index] = tex;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = pWidth;
+            canvas.height = pHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(image, 0, 0, pWidth, pHeight);
+            
+            const imgData = ctx.getImageData(0, 0, pWidth, pHeight).data;
+            const positions = [];
+            const colors = [];
+            const sizes = [];
+
+            for (let y = 0; y < pHeight; y += 1) {
+                for (let x = 0; x < pWidth; x += 1) {
+                    const i = (y * pWidth + x) * 4;
+                    const a = imgData[i + 3] / 255;
+
+                    if (a > 0.3) { 
+                        const r = imgData[i] / 255;
+                        const g = imgData[i + 1] / 255;
+                        const b = imgData[i + 2] / 255;
+                        const scale = 0.04; 
+                        positions.push((x - pWidth / 2) * scale, (-(y - pHeight / 2)) * scale, 0);
+                        colors.push(r, g, b);
+                        sizes.push(0.8 + Math.random() * 0.4); 
+                    }
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: { uTime: { value: 0 }, uHover: { value: 0.0 } },
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent,
+                transparent: true,
+                depthTest: false,
+                blending: THREE.NormalBlending 
+            });
+
+            const particles = new THREE.Points(geometry, material);
+            
+            const angle = (index / total) * Math.PI * 2;
+            const orbitRadius = 10; 
+            particles.position.set(Math.cos(angle) * orbitRadius, Math.sin(angle) * orbitRadius, 0);
+            particles.userData = { initialAngle: angle, id: index };
+            
+            const hitGeo = new THREE.PlaneGeometry(pWidth * 0.04, pHeight * 0.04);
+            const hitMat = new THREE.MeshBasicMaterial({ color: 0xff0000, opacity: 0.0, transparent: true, depthWrite: false });
+            const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+            
+            hitMesh.position.copy(particles.position);
+            hitMesh.userData = { id: index };
+            
+            scene.add(particles);
+            scene.add(hitMesh);
+            
+            particleSystems.push(particles);
+            hitBoxes.push(hitMesh);
+        }
+
+        const manager = new THREE.LoadingManager();
+        const loader = new THREE.ImageLoader(manager);
+        loader.setCrossOrigin('Anonymous');
+
+        manager.onLoad = function () {
+            const el = document.getElementById('loading');
+            el.style.opacity = 0;
+            setTimeout(() => el.style.display = 'none', 800);
+            animate();
+        };
+
+        playlist.forEach((track, i) => {
+            loader.load(track.img, (image) => {
+                createParticlesFromImage(image, i, playlist.length);
+            });
+        });
+
+        // --- PLAYBACK CONTROL ---
+        const audioEl = document.getElementById('audio-element');
+        const btnPlay = document.getElementById('btn-play');
+        let isPlaying = false;
+        let currentTrackIndex = -1;
+        let isSwitching = false;
+
+        function loadTrack(index) {
+            if (index < 0 || isSwitching) return;
+            if (currentTrackIndex === index && isPlaying) {
+                // Toggle Pause if same track
+                audioEl.pause();
+                isPlaying = false;
+                btnPlay.innerText = "PLAY";
+                return;
+            }
+
+            isSwitching = true;
+            currentTrackIndex = index;
+            const track = playlist[index];
+
+            document.querySelector('.track-title').innerText = track.title;
+            document.querySelector('.track-artist').innerText = track.artist;
+            
+            if (textureCache[index]) {
+                labelMesh.material.map = textureCache[index];
+                labelMesh.material.needsUpdate = true;
+            }
+
+            audioEl.pause();
+            audioEl.src = track.audio;
+            audioEl.load();
+
+            const playPromise = audioEl.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    isPlaying = true;
+                    btnPlay.innerText = "PAUSE";
+                    isSwitching = false;
+                }).catch(error => {
+                    console.log("Audio not ready or not found:", error);
+                    isPlaying = false;
+                    btnPlay.innerText = "PLAY";
+                    isSwitching = false;
+                });
+            }
+        }
+
+        // --- 修复交互逻辑：防止点击穿透 ---
+        
+        // 1. 按钮点击：增加 stopPropagation，防止事件冒泡到 Window
+        btnPlay.addEventListener('click', (event) => {
+            event.stopPropagation(); // 关键：点按钮时不要去检测后面的3D场景
+            if (currentTrackIndex === -1) loadTrack(0);
+            else if (isPlaying) { audioEl.pause(); isPlaying = false; btnPlay.innerText = "PLAY"; }
+            else { audioEl.play(); isPlaying = true; btnPlay.innerText = "PAUSE"; }
+        });
+
+        // 2. 3D场景点击：检测是否点击了UI层
+        window.addEventListener('click', (event) => {
+            // 如果点击的是按钮或控制栏，直接忽略，不进行3D检测
+            if (event.target.closest('button') || event.target.closest('#player-controls')) {
+                return;
+            }
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(hitBoxes);
+
+            if (intersects.length === 0) return;
+
+            const id = intersects[0].object.userData.id;
+            const track = playlist[id];
+
+            // 逻辑分支：有音频就播放，没音频有链接才打开链接
+            if (track.audio) {
+                loadTrack(id); 
+                return; 
+            }
+
+            if (track.link) {
+                window.open(track.link, "_blank");
+                return;
+            }
+        });
+
+        // --- INTERACTION ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // --- ANIMATION ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            if (isPlaying) vinylGroup.rotation.z -= 0.015;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(hitBoxes);
+            let hoveredIndex = -1;
+            if (intersects.length > 0) hoveredIndex = intersects[0].object.userData.id;
+
+            for (let i = 0; i < particleSystems.length; i++) {
+                const p = particleSystems[i];
+                p.material.uniforms.uTime.value = time;
+                
+                const currentAngle = p.userData.initialAngle - time * 0.1;
+                const r = 10;
+                
+                p.position.set(Math.cos(currentAngle) * r, Math.sin(currentAngle) * r, 0);
+
+                const hb = hitBoxes[i];
+                if (hb) hb.position.copy(p.position);
+
+                const targetHover = (i === hoveredIndex) ? 1.0 : 0.0;
+                const currentHover = p.material.uniforms.uHover.value;
+                p.material.uniforms.uHover.value += (targetHover - currentHover) * 0.1;
+            }
+            
+            document.body.style.cursor = (hoveredIndex > -1) ? 'pointer' : 'default';
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
