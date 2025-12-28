@@ -33,6 +33,10 @@ runtime_data/        # Runtime data
 *.h5
 *.parquet
 
+# Data collection scripts and harvested data
+sunorecsys/datasets/curl/
+sunorecsys/datasets/*.json
+
 # IDE
 .vscode/
 .idea/
