@@ -1,6 +1,8 @@
 # Suno Music Recommender System
 
 ![Discover Weekly UI](playlist_ui/Discover_Weekly_UI.png)
+## Introduction Video to Discover Weekly UI: https://youtu.be/JDK0bZgZQ4Y
+
 
 A production-ready hybrid music recommender system for Suno-generated music, inspired by Spotify's personalized recommendations and modern social media platforms (Instagram, LittleRedBook).
 

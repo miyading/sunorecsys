@@ -418,11 +418,16 @@
             document.querySelector('.track-title').innerText = track.title;
             document.querySelector('.track-artist').innerText = track.artist;
             
-            if (textureCache[index]) {
-                labelMesh.material.map = textureCache[index];
-                labelMesh.material.needsUpdate = true;
+            // if (textureCache[index]) {
+            //     labelMesh.material.map = textureCache[index];
+            //     labelMesh.material.needsUpdate = true;
+            // }
+            if (!track.audio) {
+                console.log("no local audio file for this song");
+                isSwitching = false;
+                return;
             }
-
+            
             audioEl.pause();
             audioEl.src = track.audio;
             audioEl.load();
