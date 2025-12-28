@@ -26,8 +26,8 @@ wheels/
 # Models and data
 wandb/
 load/
-models/
-data/
+model_checkpoints/
+runtime_data/        # Runtime data 
 *.pkl
 *.annoy
 *.h5

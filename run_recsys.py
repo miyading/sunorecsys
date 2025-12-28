@@ -14,7 +14,7 @@ import json
 import pandas as pd
 from pathlib import Path
 
-from sunorecsys.data.simulate_interactions import load_songs_from_aggregated_file
+from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
 from sunorecsys.recommenders.hybrid import HybridRecommender
 
 
@@ -26,7 +26,7 @@ def main():
     # Step 1: Load songs
     print("\n[Step 1] Loading songs...")
     print("-" * 80)
-    songs_file = "sunorecsys/data/curl/all_playlist_songs.json"
+    songs_file = "sunorecsys/datasets/curl/all_playlist_songs.json"
     if not Path(songs_file).exists():
         print(f"❌ Songs file not found: {songs_file}")
         return
@@ -59,7 +59,7 @@ def main():
         # Stage 3 (Fine Ranking) weights
         din_weight=0.70,            # Channel 5: DIN with attention (CTR prediction)
         prompt_weight=0.30,         # Channel 6: Prompt-based (user exploration)
-        din_model_path="models/din_ranker.pt",  # Path to trained DIN model
+        din_model_path="model_checkpoints/din_ranker.pt",  # Path to trained DIN model
         # Stage 4 (Re-ranking) - Music Flamingo (optional)
         use_music_flamingo=False,
         # Component toggles
@@ -74,7 +74,7 @@ def main():
         item_cold_start_rate=0.05,
         single_user_item_rate=0.15,
         random_seed=42,
-        cache_dir='data/cache',
+        cache_dir='runtime_data/cache',
         use_cache=True,
     )
     
@@ -222,7 +222,7 @@ def main():
     print("\n[Step 5] Saving model (optional)")
     print("-" * 80)
     
-    model_path = Path("models/hybrid_recommender.pkl")
+    model_path = Path("model_checkpoints/hybrid_recommender.pkl")
     model_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         recommender.save(str(model_path))

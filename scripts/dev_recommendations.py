@@ -4,7 +4,7 @@ import json
 import pandas as pd
 from pathlib import Path
 
-from sunorecsys.data.preprocess import SongDataProcessor
+from sunorecsys.datasets.preprocess import SongDataProcessor
 from sunorecsys.recommenders.item_cf import ItemBasedCFRecommender
 from sunorecsys.recommenders.item_content_based import ItemContentBasedRecommender
 from sunorecsys.recommenders.prompt_based import PromptBasedRecommender
@@ -78,9 +78,9 @@ def main():
     
     # Step 1: Load data (try aggregated file first, fallback to processed data)
     print("\n📂 Loading data...")
-    from sunorecsys.data.simulate_interactions import load_songs_from_aggregated_file
-    
-    aggregated_file = "sunorecsys/data/curl/all_playlist_songs.json"
+        from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
+        
+        aggregated_file = "sunorecsys/datasets/curl/all_playlist_songs.json"
     songs_df = None
     
     # Try loading from aggregated file
@@ -97,11 +97,11 @@ def main():
     if songs_df is None:
         print("📂 Loading from processed data...")
         processor = SongDataProcessor()
-        data_dir = Path("data/processed")
+        data_dir = Path("runtime_data/processed")
         
         if not data_dir.exists():
             print("❌ Processed data not found. Please run preprocessing first:")
-            print("   python -m sunorecsys.data.preprocess --input all_songs.json --output data/processed")
+            print("   python -m sunorecsys.datasets.preprocess --input all_songs.json --output runtime_data/processed")
             return
         
         try:

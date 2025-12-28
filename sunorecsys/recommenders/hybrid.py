@@ -61,10 +61,10 @@ class HybridRecommender(BaseRecommender):
         # Component toggles
         use_user_cf: bool = True,
         use_two_tower: bool = True,
-        two_tower_model_path: str = "models/two_tower.pt",
-        two_tower_clap_path: str = "data/clap_embeddings.json",
+        two_tower_model_path: str = "model_checkpoints/two_tower.pt",
+        two_tower_clap_path: str = "runtime_data/clap_embeddings.json",
         history_manager: Optional[UserHistoryManager] = None,
-        history_file: str = "data/user_history.json",
+        history_file: str = "runtime_data/user_history.json",
         use_last_n: bool = True,
     ):
         super().__init__("Hybrid")
@@ -335,7 +335,7 @@ class HybridRecommender(BaseRecommender):
         self.prompt_recommender = PromptBasedRecommender(
             use_clap=True,  # Use CLAP text embeddings (aligned with audio)
             clap_model_path=kwargs.get('clap_model_path'),
-            clap_cache_dir=kwargs.get('clap_cache_dir', 'data/audio_cache')
+                clap_cache_dir=kwargs.get('clap_cache_dir', 'runtime_data/audio_cache')
         )
         self.prompt_recommender.fit(songs_df, user_history=user_history, **kwargs)
         print("  ✅ Prompt-Based ready (using CLAP aligned embeddings)")
@@ -813,7 +813,7 @@ class HybridRecommender(BaseRecommender):
             scores_dict = self.music_flamingo_scorer.score_audio_batch(
                 audio_paths=audio_paths,
                 audio_ids=audio_ids,
-                cache_dir="data/music_flamingo_scores",
+                cache_dir="runtime_data/music_flamingo_scores",
                 show_progress=False,
             )
         except Exception:
@@ -904,7 +904,7 @@ class HybridRecommender(BaseRecommender):
         if self.user_recommender:
             self.user_recommender.save(f"{base_path}_user.pkl")
         if self.two_tower_recommender:
-            # Two-tower model is saved separately (models/two_tower.pt)
+            # Two-tower model is saved separately (model_checkpoints/two_tower.pt)
             pass
         
         # Stage 2 (Coarse Ranking)
@@ -912,7 +912,7 @@ class HybridRecommender(BaseRecommender):
         
         # Stage 3 (Fine Ranking)
         self.prompt_recommender.save(f"{base_path}_prompt.pkl")
-        # DIN model is saved separately (models/din_ranker.pt)
+        # DIN model is saved separately (model_checkpoints/din_ranker.pt)
         
         # Save main config
         joblib.dump({
@@ -950,7 +950,7 @@ class HybridRecommender(BaseRecommender):
         
         # Get history manager
         if history_manager is None:
-            history_file = data.get('history_file', 'data/user_history.json')
+            history_file = data.get('history_file', 'runtime_data/user_history.json')
             history_manager = UserHistoryManager(history_file=history_file)
         
         # Handle backward compatibility and new format
@@ -964,7 +964,7 @@ class HybridRecommender(BaseRecommender):
                 use_quality_filter=data['use_quality_filter'],
                 din_weight=data.get('din_weight', 0.70),
                 prompt_weight=data['prompt_weight'],
-                din_model_path=data.get('din_model_path', 'models/din_ranker.pt'),  # Load DIN model path
+                din_model_path=data.get('din_model_path', 'model_checkpoints/din_ranker.pt'),  # Load DIN model path
                 use_user_cf=data.get('use_user_cf', True),
                 use_two_tower=data.get('use_two_tower', True),
                 history_manager=history_manager,
@@ -980,7 +980,7 @@ class HybridRecommender(BaseRecommender):
                 use_quality_filter=data['use_quality_filter'],
                 din_weight=0.70,  # Default
                 prompt_weight=data['prompt_weight'],
-                din_model_path=data.get('din_model_path', 'models/din_ranker.pt'),  # Load DIN model path
+                din_model_path=data.get('din_model_path', 'model_checkpoints/din_ranker.pt'),  # Load DIN model path
                 use_user_cf=data.get('use_user_cf', True),
                 history_manager=history_manager,
                 use_last_n=data.get('use_last_n', True),
@@ -990,7 +990,7 @@ class HybridRecommender(BaseRecommender):
             recommender = cls(
                 item_cf_weight=data.get('item_weight', 0.30),
                 user_cf_weight=data.get('user_weight', 0.30),
-                din_model_path=data.get('din_model_path', 'models/din_ranker.pt'),  # Load DIN model path
+                din_model_path=data.get('din_model_path', 'model_checkpoints/din_ranker.pt'),  # Load DIN model path
                 two_tower_weight=0.40,
                 quality_threshold=data['quality_threshold'],
                 use_quality_filter=data['use_quality_filter'],
@@ -1009,7 +1009,7 @@ class HybridRecommender(BaseRecommender):
         recommender.item_cf_recommender = ItemBasedCFRecommender.load(f"{base_path}_item_cf.pkl")
         if recommender.use_user_cf:
             recommender.user_recommender = UserBasedRecommender.load(f"{base_path}_user.pkl")
-        # Two-tower model is loaded separately (models/two_tower.pt)
+        # Two-tower model is loaded separately (model_checkpoints/two_tower.pt)
         
         # Stage 2 (Coarse Ranking)
         recommender.quality_filter = QualityFilter.load(f"{base_path}_quality.pkl")

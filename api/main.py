@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 import joblib
 from pathlib import Path
 
-from ..recommenders.hybrid import HybridRecommender
+from sunorecsys.recommenders.hybrid import HybridRecommender
 
 app = FastAPI(
     title="Suno Music Recommender API",
@@ -45,7 +45,7 @@ async def load_recommender():
     """Load recommender model on startup"""
     global recommender
     
-    model_path = Path("models/hybrid_recommender.pkl")
+    model_path = Path("model_checkpoints/hybrid_recommender.pkl")
     if model_path.exists():
         try:
             recommender = HybridRecommender.load(str(model_path))

@@ -48,7 +48,7 @@ user_item_matrix, user_id_to_idx, idx_to_user_id, song_id_to_idx, idx_to_song_id
 python train_two_tower.py \
     --songs data/processed \
     --clap-embeddings data/clap_embeddings.json \
-    --output models/two_tower.pt \
+    --output model_checkpoints/two_tower.pt \
     --epochs 5 \
     --batch-size 256 \
     --num-negatives 10
@@ -193,7 +193,7 @@ simulator = InteractionSimulator(
 Run the test script to verify everything works:
 
 ```bash
-python test_simulated_interactions.py
+python scripts/test_simulated_interactions.py
 ```
 
 This will:

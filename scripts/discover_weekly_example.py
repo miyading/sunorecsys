@@ -4,8 +4,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from sunorecsys.data.preprocess import SongDataProcessor
-from sunorecsys.data.user_history import UserHistoryManager, load_user_history_from_interactions
+from sunorecsys.datasets.preprocess import SongDataProcessor
+from sunorecsys.datasets.user_history import UserHistoryManager, load_user_history_from_interactions
 from sunorecsys.recommenders.hybrid import HybridRecommender
 
 
@@ -91,7 +91,7 @@ def main():
     # Step 1: Load data
     print("\n📂 Loading data...")
     processor = SongDataProcessor()
-    data_dir = Path("data/processed")
+    data_dir = Path("runtime_data/processed")
     
     if not data_dir.exists():
         print("❌ Processed data not found. Please run preprocessing first.")
@@ -103,7 +103,7 @@ def main():
     # Step 2: Initialize user history manager
     print("\n📊 Initializing user history manager...")
     history_manager = UserHistoryManager(
-        history_file="data/user_history.json",
+        history_file="runtime_data/user_history.json",
         last_n=50,  # Keep last 50 interactions per user
         weekly_update_day=0,  # Monday
     )
@@ -150,7 +150,7 @@ def main():
         # Stage 3 (Fine Ranking) weights
         din_weight=0.70,           # Channel 5: DIN with attention (CTR prediction)
         prompt_weight=0.30,        # Channel 6: Prompt-based (user exploration)
-        din_model_path="models/din_ranker.pt",  # Path to trained DIN model
+        din_model_path="model_checkpoints/din_ranker.pt",  # Path to trained DIN model
         # Component toggles
         use_user_cf=True,
         use_two_tower=True,

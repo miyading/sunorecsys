@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 
 # Load matrix cache
-cache_dir = Path("data/cache")
+cache_dir = Path("runtime_data/cache")
 cache_file = max(cache_dir.glob("user_item_matrix_*.pkl"), key=lambda p: p.stat().st_mtime)
 cache_data = joblib.load(cache_file)
 

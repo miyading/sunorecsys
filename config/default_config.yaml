@@ -11,7 +11,7 @@ recommender:
 
 embeddings:
   model_name: "all-MiniLM-L6-v2"
-  cache_dir: "models/embeddings"
+  cache_dir: "model_checkpoints/embeddings"
 
 item_based:
   tag_weight: 0.4

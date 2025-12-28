@@ -15,7 +15,7 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from sunorecsys.data.simulate_interactions import get_user_item_matrix, load_songs_from_aggregated_file
+from sunorecsys.datasets.simulate_interactions import get_user_item_matrix, load_songs_from_aggregated_file
 from sunorecsys.recommenders.item_cf import ItemBasedCFRecommender
 from sunorecsys.recommenders.user_based import UserBasedRecommender
 
@@ -26,7 +26,7 @@ def main():
     print("="*80)
     
     # Configuration
-    aggregated_file = "sunorecsys/data/curl/all_playlist_songs.json"
+    aggregated_file = "sunorecsys/datasets/curl/all_playlist_songs.json"
     interaction_rate = 0.15
     item_cold_start_rate = 0.05
     single_user_item_rate = 0.15

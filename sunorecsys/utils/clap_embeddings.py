@@ -283,7 +283,7 @@ class CLAPAudioEmbedder:
     def __init__(
         self,
         model_path: str = DEFAULT_CLAP_MODEL_PATH,
-        cache_dir: str = "data/audio_cache",
+        cache_dir: str = "runtime_data/audio_cache",
         device: Optional[str] = None,
         batch_size: int = 16
     ):
@@ -631,7 +631,7 @@ class CLAPTextEmbedder:
     def __init__(
         self,
         model_path: str = DEFAULT_CLAP_MODEL_PATH,
-        cache_dir: str = "data/audio_cache",
+        cache_dir: str = "runtime_data/audio_cache",
         device: Optional[str] = None,
         batch_size: int = 16
     ):
@@ -832,7 +832,7 @@ def main():
     parser.add_argument('--input', required=True, help='Input JSON file with songs')
     parser.add_argument('--output', required=True, help='Output JSON file for embeddings')
     parser.add_argument('--model-path', default=DEFAULT_CLAP_MODEL_PATH, help='Path to CLAP model')
-    parser.add_argument('--cache-dir', default='data/audio_cache', help='Audio cache directory')
+    parser.add_argument('--cache-dir', default='runtime_data/audio_cache', help='Audio cache directory')
     parser.add_argument('--batch-size', type=int, default=16, help='Batch size for processing')
     parser.add_argument('--no-cache', action='store_true', help='Disable caching')
     parser.add_argument('--device', default=None, help='Device to use (cuda/cpu)')

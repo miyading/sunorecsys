@@ -14,7 +14,7 @@ import hashlib
 class AudioFeatureExtractor:
     """Extract audio features from audio files"""
     
-    def __init__(self, cache_dir: str = "data/audio_cache", sample_rate: int = 22050):
+    def __init__(self, cache_dir: str = "runtime_data/audio_cache", sample_rate: int = 22050):
         """
         Initialize audio feature extractor
         

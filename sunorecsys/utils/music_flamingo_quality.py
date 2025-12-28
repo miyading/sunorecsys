@@ -354,7 +354,7 @@ class MusicFlamingoQualityScorer:
         return max(0.0, min(1.0, overall))
 
 
-def create_quality_scorer_function(scorer: MusicFlamingoQualityScorer, cache_dir: str = "data/music_flamingo_scores") -> callable:
+def create_quality_scorer_function(scorer: MusicFlamingoQualityScorer, cache_dir: str = "runtime_data/music_flamingo_scores") -> callable:
     """
     Create a quality scorer function compatible with QualityFilter.
     

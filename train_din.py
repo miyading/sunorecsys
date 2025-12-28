@@ -4,28 +4,28 @@ Example usage:
 
     # Basic training
     python train_din.py \\
-        --songs sunorecsys/data/curl/all_playlist_songs.json \\
-        --clap-embeddings data/clap_embeddings.json \\
-        --output models/din_ranker.pt
+        --songs sunorecsys/datasets/curl/all_playlist_songs.json \\
+        --clap-embeddings runtime_data/clap_embeddings.json \\
+        --output model_checkpoints/din_ranker.pt
 
     # Training with checkpoint saving
     python train_din.py \\
-        --songs sunorecsys/data/curl/all_playlist_songs.json \\
-        --clap-embeddings data/clap_embeddings.json \\
-        --output models/din_ranker.pt \\
+        --songs sunorecsys/datasets/curl/all_playlist_songs.json \\
+        --clap-embeddings runtime_data/clap_embeddings.json \\
+        --output model_checkpoints/din_ranker.pt \\
         --epochs 10 \\
         --batch-size 128 \\
         --max-history 50 \\
-        --save-checkpoints models/din_checkpoint.pt \\
+        --save-checkpoints model_checkpoints/din_checkpoint.pt \\
         --save-every-n-epochs 2
 
     # Resume from checkpoint
     python train_din.py \\
-        --songs sunorecsys/data/curl/all_playlist_songs.json \\
-        --clap-embeddings data/clap_embeddings.json \\
-        --output models/din_ranker.pt \\
+        --songs sunorecsys/datasets/curl/all_playlist_songs.json \\
+        --clap-embeddings runtime_data/clap_embeddings.json \\
+        --output model_checkpoints/din_ranker.pt \\
         --epochs 10 \\
-        --resume-from models/din_checkpoint_epoch_5.pt
+        --resume-from model_checkpoints/din_checkpoint_epoch_5.pt
 
 This will:
 1. Load songs from all_playlist_songs.json (3881 songs by default).
@@ -48,9 +48,9 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-from sunorecsys.data.preprocess import SongDataProcessor
-from sunorecsys.data.simulate_interactions import load_songs_from_aggregated_file
-from sunorecsys.data.simulate_interactions import get_user_item_matrix
+from sunorecsys.datasets.preprocess import SongDataProcessor
+from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
+from sunorecsys.datasets.simulate_interactions import get_user_item_matrix
 from sunorecsys.recommenders.din_ranker import DINModel
 
 
@@ -359,7 +359,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train DIN CTR prediction model")
     parser.add_argument(
         "--songs",
-        default="sunorecsys/data/curl/all_playlist_songs.json",
+        default="sunorecsys/datasets/curl/all_playlist_songs.json",
         help="Path to songs JSON file (default: all_playlist_songs.json with 3881 songs)",
     )
     parser.add_argument(
@@ -369,7 +369,7 @@ def main():
     )
     parser.add_argument(
         "--output",
-        default="models/din_ranker.pt",
+        default="model_checkpoints/din_ranker.pt",
         help="Output path for trained DIN model",
     )
     parser.add_argument(
@@ -425,7 +425,7 @@ def main():
         "--save-checkpoints",
         type=str,
         default=None,
-        help="Path to save checkpoints during training (e.g., models/din_checkpoint.pt). "
+        help="Path to save checkpoints during training (e.g., model_checkpoints/din_checkpoint.pt). "
              "Checkpoints will be saved as {path}_epoch_{epoch}.pt",
     )
     parser.add_argument(
@@ -505,7 +505,7 @@ def main():
         single_user_item_rate=0.15,
         random_seed=args.seed,
         max_songs=None,
-        cache_dir="data/cache",
+        cache_dir="runtime_data/cache",
         use_cache=True,
         return_events=True,
         num_negatives_per_user=args.num_negatives * 2,

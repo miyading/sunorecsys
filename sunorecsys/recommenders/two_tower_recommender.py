@@ -26,8 +26,8 @@ class TwoTowerRecommender(BaseRecommender):
     
     def __init__(
         self,
-        model_path: str = "models/two_tower.pt",
-        clap_embeddings_path: str = "data/clap_embeddings.json",
+        model_path: str = "model_checkpoints/two_tower.pt",
+        clap_embeddings_path: str = "runtime_data/clap_embeddings.json",
         top_k: int = 100,
     ):
         """

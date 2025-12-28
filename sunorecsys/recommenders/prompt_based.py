@@ -34,7 +34,7 @@ class PromptBasedRecommender(BaseRecommender):
         use_clap: bool = True,  # Use CLAP text embeddings (aligned with audio)
         embedding_model: str = 'all-MiniLM-L6-v2',  # Fallback if CLAP not available
         clap_model_path: Optional[str] = None,
-        clap_cache_dir: str = "data/audio_cache",
+        clap_cache_dir: str = "runtime_data/audio_cache",
         n_trees: int = 50,
     ):
         super().__init__("PromptBased")
@@ -97,7 +97,7 @@ class PromptBasedRecommender(BaseRecommender):
             self.embedding_dim = base_embedder.embedding_dim
         
         # Check for cached prompt embeddings
-        cache_dir = kwargs.get('cache_dir', 'data/cache')
+        cache_dir = kwargs.get('cache_dir', 'runtime_data/cache')
         use_cache = kwargs.get('use_cache', True)
         cache_path = None
         song_ids_sorted = sorted(songs_df['song_id'].tolist())

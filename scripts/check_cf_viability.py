@@ -7,7 +7,7 @@ from pathlib import Path
 from collections import Counter
 from scipy.sparse import csr_matrix
 
-from sunorecsys.data.preprocess import SongDataProcessor
+from sunorecsys.datasets.preprocess import SongDataProcessor
 from sunorecsys.recommenders.item_cf import ItemBasedCFRecommender
 
 
@@ -150,7 +150,7 @@ def main():
     print("\n📂 Loading data...")
     processor = SongDataProcessor()
     
-    data_dir = Path("data/processed")
+    data_dir = Path("runtime_data/processed")
     if not data_dir.exists():
         print("❌ Processed data not found. Please run preprocessing first.")
         return

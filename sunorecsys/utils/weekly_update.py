@@ -24,7 +24,7 @@ class WeeklyUpdateScheduler:
         history_manager: UserHistoryManager,
         songs_df: pd.DataFrame,
         update_time: str = "00:00",  # Update at midnight on Monday
-        data_dir: str = "data/processed",
+        data_dir: str = "runtime_data/processed",
     ):
         """
         Initialize weekly update scheduler
@@ -144,8 +144,8 @@ class WeeklyUpdateScheduler:
 def create_weekly_update_script(
     output_file: str = "weekly_update.py",
     data_dir: str = "data/processed",
-    history_file: str = "data/user_history.json",
-    model_file: str = "models/hybrid_recommender.pkl",
+    history_file: str = "runtime_data/user_history.json",
+    model_file: str = "model_checkpoints/hybrid_recommender.pkl",
 ):
     """
     Create a standalone script for weekly updates (to run via cron)
@@ -166,8 +166,8 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from sunorecsys.data.preprocess import SongDataProcessor
-from sunorecsys.data.user_history import UserHistoryManager
+from sunorecsys.datasets.preprocess import SongDataProcessor
+from sunorecsys.datasets.user_history import UserHistoryManager
 from sunorecsys.recommenders.hybrid import HybridRecommender
 from sunorecsys.utils.weekly_update import WeeklyUpdateScheduler
 
@@ -200,7 +200,7 @@ def main():
         print("🔧 Creating new recommender...")
         recommender = HybridRecommender(
             history_manager=history_manager,
-            din_model_path="models/din_ranker.pt",  # Path to trained DIN model (if available)
+            din_model_path="model_checkpoints/din_ranker.pt",  # Path to trained DIN model (if available)
         )
         recommender.fit(songs_df)
     

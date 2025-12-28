@@ -53,24 +53,50 @@ The system implements a **four-stage hybrid architecture** for discover weekly m
 ## Project Structure
 
 ```
-sunorecsys/
-├── data/              # Data processing and loading
-│   └── user_history.py    # User history management
-├── models/            # ML models and embeddings
-├── recommenders/      # Recommendation algorithms
-│   ├── hybrid.py          # Four-stage hybrid recommender
-│   ├── item_cf.py         # Item-based CF (Stage 1)
-│   ├── user_based.py      # User-based CF (Stage 1)
-│   ├── two_tower_recommender.py  # CLAP-based retrieval (Stage 1)
-│   ├── quality_filter.py  # Quality filtering (Stage 2)
-│   ├── din_ranker.py      # DIN for CTR prediction (Stage 3)
-│   └── prompt_based.py    # CLAP text embeddings (Stage 3)
-├── evaluation/        # Evaluation metrics and testing
-├── api/               # Production API service
-├── config/            # Configuration files
-└── utils/             # Utility functions
-    ├── clap_embeddings.py      # CLAP audio & text embeddings
-    └── music_flamingo_quality.py  # Music Flamingo integration
+sunorecsys/                    # Project root
+├── sunorecsys/                # Python package (source code)
+│   ├── datasets/               # Data processing modules
+│   │   ├── curl/              # Data collection scripts
+│   │   │   ├── extract_playlist_songs.py
+│   │   │   ├── aggregate_playlist_songs.py
+│   │   │   └── all_playlist_songs.json  # Main dataset
+│   │   ├── preprocess.py      # Data preprocessing
+│   │   ├── simulate_interactions.py
+│   │   └── user_history.py   # User history management
+│   ├── recommenders/          # Recommendation algorithms
+│   │   ├── hybrid.py          # Four-stage hybrid recommender
+│   │   ├── item_cf.py         # Item-based CF (Stage 1)
+│   │   ├── user_based.py      # User-based CF (Stage 1)
+│   │   ├── two_tower_recommender.py  # CLAP-based retrieval (Stage 1)
+│   │   ├── quality_filter.py  # Quality filtering (Stage 2)
+│   │   ├── din_ranker.py      # DIN for CTR prediction (Stage 3)
+│   │   └── prompt_based.py    # CLAP text embeddings (Stage 3)
+│   ├── evaluation/            # Evaluation metrics
+│   ├── utils/                 # Utility functions
+│   │   ├── clap_embeddings.py      # CLAP audio & text embeddings
+│   │   └── music_flamingo_quality.py
+│   └── load/                   # Model weights (CLAP, etc.)
+├── config/                    # Configuration files
+│   └── default_config.yaml
+├── runtime_data/              # Runtime data (generated)
+│   ├── audio_cache/           # Cached audio files & embeddings
+│   ├── cache/                  # Processed data cache
+│   ├── clap_embeddings.json   # Precomputed CLAP embeddings
+│   └── user_history.json      # User interaction history
+├── model_checkpoints/         # Trained models
+│   ├── hybrid_recommender.pkl
+│   ├── din_ranker.pt
+│   └── two_tower.pt
+├── api/                       # Production API service (FastAPI)
+│   └── main.py
+├── docs/                      # Documentation
+├── scripts/                    # Utility & test scripts
+│   ├── compute_clap_embeddings.py
+│   ├── weekly_update.py
+│   └── test_simulated_interactions.py
+├── run_recsys.py              # Main inference script
+├── train_din.py               # DIN training script
+└── train_two_tower.py         # Two-tower training script
 ```
 
 ## Sample Output

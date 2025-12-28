@@ -181,7 +181,7 @@ class DINRanker(BaseRecommender):
         self,
         embedding_dim: int = 512,  # CLAP embedding dimension
         model_path: Optional[str] = None,
-        clap_embeddings_path: str = "data/clap_embeddings.json",
+        clap_embeddings_path: str = "runtime_data/clap_embeddings.json",
         device: Optional[str] = None,
     ):
         """
@@ -432,7 +432,7 @@ class DINRanker(BaseRecommender):
         }, path)
     
     @classmethod
-    def load(cls, path: str, clap_embeddings_path: str = "data/clap_embeddings.json"):
+    def load(cls, path: str, clap_embeddings_path: str = "runtime_data/clap_embeddings.json"):
         """Load a saved DIN ranker"""
         checkpoint = torch.load(path, map_location='cpu')
         embedding_dim = checkpoint.get('embedding_dim', 512)

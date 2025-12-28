@@ -16,8 +16,8 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from sunorecsys.data.preprocess import SongDataProcessor
-from sunorecsys.data.user_history import UserHistoryManager
+from sunorecsys.datasets.preprocess import SongDataProcessor
+from sunorecsys.datasets.user_history import UserHistoryManager
 from sunorecsys.recommenders.hybrid import HybridRecommender
 from sunorecsys.utils.weekly_update import WeeklyUpdateScheduler
 
@@ -28,9 +28,9 @@ def main():
     print("="*80)
     
     # Load data from all_playlist_songs.json
-    from sunorecsys.data.simulate_interactions import load_songs_from_aggregated_file
+    from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
     
-    aggregated_file = Path("sunorecsys/data/curl/all_playlist_songs.json")
+    aggregated_file = Path("sunorecsys/datasets/curl/all_playlist_songs.json")
     
     if not aggregated_file.exists():
         print(f"❌ Data file not found: {aggregated_file}")
@@ -40,10 +40,10 @@ def main():
     print(f"✅ Loaded {len(songs_df)} songs")
     
     # Initialize history manager
-    history_manager = UserHistoryManager(history_file="data/user_history.json")
+    history_manager = UserHistoryManager(history_file="runtime_data/user_history.json")
     
     # Load or create recommender
-    model_path = Path("models/hybrid_recommender.pkl")
+    model_path = Path("model_checkpoints/hybrid_recommender.pkl")
     if model_path.exists():
         print(f"📂 Loading existing model from {model_path}...")
         recommender = HybridRecommender.load(str(model_path), history_manager=history_manager)
@@ -51,7 +51,7 @@ def main():
         print("🔧 Creating new recommender...")
         recommender = HybridRecommender(
             history_manager=history_manager,
-            din_model_path="models/din_ranker.pt",  # Path to trained DIN model (if available)
+            din_model_path="model_checkpoints/din_ranker.pt",  # Path to trained DIN model (if available)
         )
         recommender.fit(songs_df)
     

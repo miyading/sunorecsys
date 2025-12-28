@@ -20,15 +20,15 @@ def main():
 Examples:
   # Compute embeddings for all songs
   python compute_clap_embeddings.py \\
-      --input sunorecsys/data/curl/all_songs.json \\
-      --output data/clap_embeddings.json
+      --input sunorecsys/datasets/curl/all_songs.json \\
+      --output runtime_data/clap_embeddings.json
   
   # Use custom model path and cache directory
   python compute_clap_embeddings.py \\
-      --input sunorecsys/data/curl/all_songs.json \\
-      --output data/clap_embeddings.json \\
+      --input sunorecsys/datasets/curl/all_songs.json \\
+      --output runtime_data/clap_embeddings.json \\
       --model-path load/clap_score/model.pt \\
-      --cache-dir data/audio_cache \\
+      --cache-dir runtime_data/audio_cache \\
       --batch-size 8
         """
     )
@@ -50,7 +50,7 @@ Examples:
     )
     parser.add_argument(
         '--cache-dir',
-        default='data/audio_cache',
+        default='runtime_data/audio_cache',
         help='Directory for audio cache and embeddings'
     )
     parser.add_argument(

@@ -4,26 +4,26 @@ Example usage:
 
     # Basic training
     python train_two_tower.py \\
-        --songs sunorecsys/data/curl/all_playlist_songs.json \\
-        --clap-embeddings data/clap_embeddings.json \\
-        --output models/two_tower.pt
+        --songs sunorecsys/datasets/curl/all_playlist_songs.json \\
+        --clap-embeddings runtime_data/clap_embeddings.json \\
+        --output model_checkpoints/two_tower.pt
 
     # Training with checkpoint saving
     python train_two_tower.py \\
-        --songs sunorecsys/data/curl/all_playlist_songs.json \\
-        --clap-embeddings data/clap_embeddings.json \\
-        --output models/two_tower.pt \\
+        --songs sunorecsys/datasets/curl/all_playlist_songs.json \\
+        --clap-embeddings runtime_data/clap_embeddings.json \\
+        --output model_checkpoints/two_tower.pt \\
         --epochs 20 \\
-        --save-checkpoints models/two_tower_checkpoint.pt \\
+        --save-checkpoints model_checkpoints/two_tower_checkpoint.pt \\
         --save-every-n-epochs 1
 
     # Resume from checkpoint
     python train_two_tower.py \\
-        --songs sunorecsys/data/curl/all_playlist_songs.json \\
-        --clap-embeddings data/clap_embeddings.json \\
-        --output models/two_tower.pt \\
+        --songs sunorecsys/datasets/curl/all_playlist_songs.json \\
+        --clap-embeddings runtime_data/clap_embeddings.json \\
+        --output model_checkpoints/two_tower.pt \\
         --epochs 20 \\
-        --resume-from models/two_tower_checkpoint_epoch_10.pt
+        --resume-from model_checkpoints/two_tower_checkpoint_epoch_10.pt
 
 This will:
 1. Load songs from all_playlist_songs.json (3881 songs by default).
@@ -39,9 +39,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sunorecsys.data.preprocess import SongDataProcessor
-from sunorecsys.data.simulate_interactions import load_songs_from_aggregated_file
-from sunorecsys.data.simulate_interactions import get_user_item_matrix
+from sunorecsys.datasets.preprocess import SongDataProcessor
+from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
+from sunorecsys.datasets.simulate_interactions import get_user_item_matrix
 from sunorecsys.recommenders.two_tower import (
     TwoTowerConfig,
     build_item_feature_matrix,
@@ -60,7 +60,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train two-tower retrieval model")
     parser.add_argument(
         "--songs",
-        default="sunorecsys/data/curl/all_playlist_songs.json",
+        default="sunorecsys/datasets/curl/all_playlist_songs.json",
         help="Path to songs JSON file (default: all_playlist_songs.json with 3881 songs)",
     )
     parser.add_argument(
@@ -70,7 +70,7 @@ def main():
     )
     parser.add_argument(
         "--output",
-        default="models/two_tower.pt",
+        default="model_checkpoints/two_tower.pt",
         help="Output path for trained two-tower model",
     )
     parser.add_argument(
@@ -101,7 +101,7 @@ def main():
         "--save-checkpoints",
         type=str,
         default=None,
-        help="Path to save checkpoints during training (e.g., models/two_tower_checkpoint.pt). "
+        help="Path to save checkpoints during training (e.g., model_checkpoints/two_tower_checkpoint.pt). "
              "Checkpoints will be saved as {path}_epoch_{epoch}.pt",
     )
     parser.add_argument(
@@ -176,7 +176,7 @@ def main():
         single_user_item_rate=0.15,
         random_seed=42,
         max_songs=None,
-        cache_dir="data/cache",
+        cache_dir="runtime_data/cache",
         use_cache=True,
         return_events=True,
         num_negatives_per_user=args.num_negatives * 2,  # a few more negatives for sampling

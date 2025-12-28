@@ -34,7 +34,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train hybrid music recommender')
     parser.add_argument('--songs', required=True, help='Path to processed songs data directory')
     parser.add_argument('--playlists', help='Path to playlists JSON file (optional)')
-    parser.add_argument('--output', default='models/hybrid_recommender.pkl', help='Output model path')
+    parser.add_argument('--output', default='model_checkpoints/hybrid_recommender.pkl', help='Output model path')
     parser.add_argument('--item-weight', type=float, default=0.25, help='Item-based weight')
     parser.add_argument('--prompt-weight', type=float, default=0.20, help='Prompt-based weight')
     parser.add_argument('--genre-weight', type=float, default=0.20, help='Genre-based weight')

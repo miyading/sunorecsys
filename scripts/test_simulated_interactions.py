@@ -1,10 +1,15 @@
 """Test script to verify simulated interactions work correctly"""
 
+import sys
 import pandas as pd
 from pathlib import Path
 
-from sunorecsys.data.preprocess import SongDataProcessor
-from sunorecsys.data.simulate_interactions import get_user_item_matrix, InteractionSimulator
+# Add scripts directory to path for local imports
+scripts_dir = Path(__file__).parent
+sys.path.insert(0, str(scripts_dir))
+
+from sunorecsys.datasets.preprocess import SongDataProcessor
+from sunorecsys.datasets.simulate_interactions import get_user_item_matrix, InteractionSimulator
 from sunorecsys.recommenders.item_cf import ItemBasedCFRecommender
 from check_cf_viability import analyze_cf_viability
 
@@ -15,12 +20,12 @@ def main():
     print("="*80)
     
     # Try loading from aggregated file first, fallback to processed data
-    aggregated_file = "sunorecsys/data/curl/all_playlist_songs.json"
+    aggregated_file = "sunorecsys/datasets/curl/all_playlist_songs.json"
     songs_df = None
     
     if Path(aggregated_file).exists():
         print("\n📂 Loading from aggregated file...")
-        from sunorecsys.data.simulate_interactions import load_songs_from_aggregated_file
+        from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
         try:
             songs_df = load_songs_from_aggregated_file(aggregated_file, max_songs=None)
             print(f"✅ Loaded {len(songs_df)} songs from aggregated file")
@@ -33,7 +38,7 @@ def main():
         print("\n📂 Loading from processed data...")
         processor = SongDataProcessor()
         
-        data_dir = Path("data/processed")
+        data_dir = Path("runtime_data/processed")
         if not data_dir.exists():
             print("❌ Processed data not found. Please run preprocessing first.")
             return
@@ -114,10 +119,10 @@ def main():
     print("Test 4: Using Aggregated File")
     print("="*80)
     print("\nTo use aggregated file with real user_ids and song_ids:")
-    print("  from sunorecsys.data.simulate_interactions import get_user_item_matrix")
+    print("  from sunorecsys.datasets.simulate_interactions import get_user_item_matrix")
     print("  ")
     print("  user_item_matrix, ... = get_user_item_matrix(")
-    print("      aggregated_file='sunorecsys/data/curl/all_playlist_songs.json',")
+    print("      aggregated_file='sunorecsys/datasets/curl/all_playlist_songs.json',")
     print("      use_simulation=True,  # Uses simulation with real IDs")
     print("      interaction_rate=0.15,")
     print("  )")

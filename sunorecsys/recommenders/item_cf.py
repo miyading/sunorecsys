@@ -74,7 +74,7 @@ class ItemBasedCFRecommender(BaseRecommender):
                 item_cold_start_rate=kwargs.get('item_cold_start_rate', 0.05),
                 single_user_item_rate=kwargs.get('single_user_item_rate', 0.15),
                 random_seed=kwargs.get('random_seed', 42),
-                cache_dir=kwargs.get('cache_dir', 'data/cache'),
+                cache_dir=kwargs.get('cache_dir', 'runtime_data/cache'),
                 use_cache=kwargs.get('use_cache', True),
             )
         else:

@@ -19,13 +19,13 @@ def main():
 Examples:
   # Compute quality scores for all songs
   python compute_music_flamingo_quality.py \\
-      --input sunorecsys/data/curl/all_songs.json \\
+      --input sunorecsys/datasets/curl/all_songs.json \\
       --output data/music_flamingo_scores.json \\
       --cache-dir data/music_flamingo_scores
   
   # Process with GPU
   python compute_music_flamingo_quality.py \\
-      --input sunorecsys/data/curl/all_songs.json \\
+      --input sunorecsys/datasets/curl/all_songs.json \\
       --output data/music_flamingo_scores.json \\
       --device cuda \\
       --batch-size 4
@@ -49,7 +49,7 @@ Examples:
     )
     parser.add_argument(
         '--cache-dir',
-        default='data/music_flamingo_scores',
+        default='runtime_data/music_flamingo_scores',
         help='Directory to cache individual scores'
     )
     parser.add_argument(
