@@ -1,7 +1,8 @@
 """Two-tower retrieval model for Suno RecSys.
 
 This implements a two-tower architecture with 2-layer MLP trained with
-an InfoNCE-style loss using simulated positive/negative pairs.
+either InfoNCE or BPR (Bayesian Personalized Ranking) loss using simulated 
+positive/negative pairs.
 
 Design choices:
 - Item tower input: fixed item feature vectors (e.g. CLAP audio embeddings,
@@ -11,7 +12,9 @@ Design choices:
   (same D_base as item tower input).
 - User tower: the same structure as item tower (2-layer MLP + L2 norm), so
   user and item embeddings are aligned in R^{D_model}.
-- Temperature scaling: Applied to InfoNCE logits for stable training.
+- Loss functions:
+  - InfoNCE: Multi-class classification with temperature scaling
+  - BPR: Pairwise ranking loss -log(sigmoid(s_pos - s_neg))
 - Learning rate scheduling: CosineAnnealingLR for better convergence.
 
 Prompt embeddings are NOT used inside this two-tower model per design –
@@ -44,6 +47,8 @@ class TwoTowerConfig:
     temperature: float = 0.1  # Temperature scaling for InfoNCE loss
     hidden_dim: int = 512     # Hidden dimension for MLP 
     dropout: float = 0.1       # Dropout rate for MLP
+    last_n: int = 8            # Number of recent interactions to use for user representation
+    loss_type: str = "infonce"  # Loss type: "infonce" or "bpr"
 
 
 class TwoTowerModel(nn.Module):
@@ -92,6 +97,28 @@ class TwoTowerModel(nn.Module):
         neg_item_feats: torch.Tensor,
     ) -> torch.Tensor:
         """
+        Compute loss for a batch (InfoNCE or BPR).
+
+        Args:
+            user_feats: (B, D_base)
+            pos_item_feats: (B, D_base)
+            neg_item_feats: (B, K, D_base) for InfoNCE, or (B, 1, D_base) for BPR
+
+        Returns:
+            Scalar loss tensor.
+        """
+        if self.config.loss_type == "bpr":
+            return self.forward_bpr(user_feats, pos_item_feats, neg_item_feats)
+        else:
+            return self.forward_infonce(user_feats, pos_item_feats, neg_item_feats)
+    
+    def forward_infonce(
+        self,
+        user_feats: torch.Tensor,
+        pos_item_feats: torch.Tensor,
+        neg_item_feats: torch.Tensor,
+    ) -> torch.Tensor:
+        """
         Compute InfoNCE loss for a batch.
 
         Args:
@@ -125,13 +152,57 @@ class TwoTowerModel(nn.Module):
 
         loss = nn.functional.cross_entropy(logits, labels)
         return loss
+    
+    def forward_bpr(
+        self,
+        user_feats: torch.Tensor,
+        pos_item_feats: torch.Tensor,
+        neg_item_feats: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute BPR (Bayesian Personalized Ranking) loss for a batch.
+
+        BPR loss: -log(sigmoid(s_pos - s_neg))
+        where s_pos = user_embedding · pos_item_embedding
+        and s_neg = user_embedding · neg_item_embedding
+
+        Args:
+            user_feats: (B, D_base)
+            pos_item_feats: (B, D_base)
+            neg_item_feats: (B, K, D_base) - can have K=1 or K>1 (average over negatives)
+
+        Returns:
+            Scalar loss tensor.
+        """
+        u = self.encode_users(user_feats)          # (B, D_model)
+        i_pos = self.encode_items(pos_item_feats)  # (B, D_model)
+
+        B, K, D_base = neg_item_feats.shape
+        neg_item_feats = neg_item_feats.view(B * K, D_base)
+        i_neg = self.encode_items(neg_item_feats).view(B, K, -1)  # (B, K, D_model)
+
+        # Positive scores: (B,)
+        pos_scores = (u * i_pos).sum(dim=-1)  # (B,)
+
+        # Negative scores: (B, K)
+        neg_scores = torch.bmm(i_neg, u.unsqueeze(-1)).squeeze(-1)  # (B, K)
+
+        # For multiple negatives, average them (or use max, but average is more common)
+        neg_scores = neg_scores.mean(dim=-1)  # (B,)
+
+        # BPR loss: -log(sigmoid(s_pos - s_neg))
+        # More numerically stable: -log(sigmoid(x)) = log(1 + exp(-x))
+        diff = pos_scores - neg_scores  # (B,)
+        loss = -torch.log(torch.sigmoid(diff) + 1e-8).mean()  # Add small epsilon for numerical stability
+
+        return loss
 
 
 class TwoTowerDataset(Dataset):
     """
     Dataset that yields (user_feat, pos_item_feat, neg_item_feats) triples.
 
-    - user_feat: average of positive item feature vectors for that user (D_base).
+    - user_feat: average of last-n positive item feature vectors for that user (D_base).
     - pos_item_feat: feature vector of a positive item (D_base).
     - neg_item_feats: K negative item feature vectors (K, D_base) sampled from
       the user's negative items.
@@ -144,6 +215,7 @@ class TwoTowerDataset(Dataset):
         item_features: np.ndarray,
         song_id_to_idx: Dict[str, int],
         num_negatives: int = 10,
+        last_n: int = 8,  # Number of recent interactions to use for user representation
     ):
         """
         Args:
@@ -152,8 +224,10 @@ class TwoTowerDataset(Dataset):
             item_features: np.ndarray of shape (num_items, D_base), aligned with song_id_to_idx.
             song_id_to_idx: mapping from song_id to row index in item_features.
             num_negatives: number of negatives per positive sample.
+            last_n: number of recent interactions to use for user representation (default: 8).
         """
         self.num_negatives = num_negatives
+        self.last_n = last_n
         self.item_features = item_features.astype(np.float32)
         self.song_id_to_idx = song_id_to_idx
 
@@ -200,8 +274,12 @@ class TwoTowerDataset(Dataset):
         pos_list = self.user_pos_items[uid]
         neg_list = self.user_neg_items[uid]
 
-        # user feature: average of all positive items for this user
-        user_feat = self.item_features[pos_list].mean(axis=0)
+        # user feature: average of last-n positive items for this user
+        # Use last-n items (most recent, assuming pos_list is ordered by interaction time)
+        # In synthetic data, we use the last n items from the list
+        n_recent = min(self.last_n, len(pos_list))
+        recent_pos_list = pos_list[-n_recent:] if n_recent > 0 else pos_list
+        user_feat = self.item_features[recent_pos_list].mean(axis=0)
 
         pos_item_feat = self.item_features[pos_idx]
 
@@ -313,6 +391,7 @@ def train_two_tower(
         item_features=item_features,
         song_id_to_idx=song_id_to_idx,
         num_negatives=config.num_negatives,
+        last_n=getattr(config, 'last_n', 8),  # Default to 8 if not in config
     )
 
     dataloader = DataLoader(

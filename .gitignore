@@ -28,6 +28,9 @@ wandb/
 load/
 model_checkpoints/
 runtime_data/        # Runtime data 
+runtime_data/** 
+archived/
+archived/audio/**           # Archived files
 *.pkl
 *.annoy
 *.h5

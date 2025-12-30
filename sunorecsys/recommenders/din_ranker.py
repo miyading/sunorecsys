@@ -1,8 +1,9 @@
 """Deep Interest Network (DIN) for CTR prediction in ranking stage.
 
 DIN uses attention mechanisms to model user interests from historical interactions.
-This implementation uses attention to aggregate user's historical track embeddings
+This implementation uses attention to aggregate user's historical track embeddings 
 to predict click-through rate for candidate tracks.
+Also uses simplified MLP inputs: only last-n + candidate track to predict attention scores.
 """
 
 import numpy as np

@@ -70,6 +70,10 @@ class InteractionSimulator:
         user_id_field: str = 'user_id',
         return_events: bool = False,
         num_negatives_per_user: int = 50,
+        impressions_size: int = 50,  # Size of impression set M for each user
+        clap_embeddings: Optional[Dict[str, np.ndarray]] = None,  # CLAP embeddings for hard negative mining
+        hard_negative_top_p: float = 0.2,  # Top p% of impressions by similarity to use as hard negatives
+        last_n: int = 8,  # Number of recent interactions for user feature computation
     ) -> Tuple[csr_matrix, Dict[str, int], Dict[int, str], Dict[str, int], Dict[int, str]]:
         """
         Simulate user-item interactions
@@ -247,26 +251,133 @@ class InteractionSimulator:
                 }
             )
 
-        # 负样本：对每个用户，从“未互动”的歌曲里采样若干首，视为“看到了但没互动”
+        # 负样本：基于曝光集合（impressions）采样，支持 hard negative mining
+        # 对每个用户，先从 song_probs 采样 M=impressions_size 个"曝光"的歌曲
+        # 如果提供了 CLAP embeddings，使用 hard negative mining：
+        #   1. 计算 user_feature（last-n 正样本的 CLAP embedding 平均）
+        #   2. 计算曝光集合中每首歌与 user_feature 的余弦相似度
+        #   3. 从 top p% 相似度的曝光但未点中采样 negatives
+        # 否则，从曝光集合中随机采样
+        use_hard_negatives = clap_embeddings is not None and len(clap_embeddings) > 0
+        if use_hard_negatives:
+            print(f"   Generating impressions (M={impressions_size}) with HARD NEGATIVE mining (top {hard_negative_top_p*100:.0f}%)...")
+        else:
+            print(f"   Generating impressions (M={impressions_size}) and negative samples (random sampling)...")
+        
+        # Re-compute song_id_to_row for efficient lookup (needed for impression generation)
+        songs_df_indexed = songs_df.set_index('song_id', drop=False)
+        song_id_to_row = {}
+        for song_id in song_id_to_idx.keys():
+            try:
+                song_id_to_row[song_id] = songs_df_indexed.loc[song_id]
+            except KeyError:
+                continue
+        
         all_item_indices = np.arange(num_items)
+        
         for u_idx in range(num_users):
+            user_id = idx_to_user_id[u_idx]
             pos_items = user_pos_items.get(u_idx, set())
+            
             if len(pos_items) >= num_items:
                 continue
 
-            if pos_items:
-                pos_array = np.fromiter(pos_items, dtype=int)
-                candidate_neg = np.setdiff1d(all_item_indices, pos_array, assume_unique=True)
+            # Generate impression set M for this user based on song_probs
+            # Use the same sampling logic as positive interactions but for impressions
+            genre_prefs = user_genre_prefs.get(user_id, {})
+            
+            # Compute impression probabilities (similar to _sample_songs_for_user)
+            impression_probs = np.zeros(num_items)
+            for song_id, song_idx in song_id_to_idx.items():
+                if song_idx in pos_items:
+                    continue  # Skip positive items
+                
+                if song_id not in song_id_to_row:
+                    continue
+                
+                song = song_id_to_row[song_id]
+                
+                # Base popularity
+                prob = song_popularity[song_idx]
+                
+                # Genre preference boost
+                song_genre = song.get('genre', 'unknown')
+                if song_genre in genre_prefs:
+                    prob *= (1.0 + genre_prefs[song_genre] * 2.0)
+                
+                # Temporal effect
+                if 'days_since_creation' in song:
+                    days = song.get('days_since_creation', 0)
+                    if days is not None and not pd.isna(days):
+                        recency_boost = np.exp(-self.temporal_decay * days / 365.0)
+                        prob *= (1.0 + recency_boost * 0.3)
+                
+                impression_probs[song_idx] = prob
+            
+            # Normalize to probabilities
+            total_prob = impression_probs.sum()
+            if total_prob > 0:
+                impression_probs = impression_probs / total_prob
             else:
-                candidate_neg = all_item_indices
-
-            if len(candidate_neg) == 0:
+                # Fallback: uniform over non-positive items
+                if pos_items:
+                    pos_array = np.fromiter(pos_items, dtype=int)
+                    candidate_impressions = np.setdiff1d(all_item_indices, pos_array, assume_unique=True)
+                else:
+                    candidate_impressions = all_item_indices
+                if len(candidate_impressions) > 0:
+                    impression_probs[candidate_impressions] = 1.0 / len(candidate_impressions)
+            
+            # Sample M impressions (with replacement, but we'll deduplicate)
+            available_for_impressions = np.where(impression_probs > 0)[0]
+            if len(available_for_impressions) == 0:
                 continue
+            
+            # Sample impressions
+            M = min(impressions_size, len(available_for_impressions))
+            if M == 0:
+                continue
+            
+            # Sample with probabilities
+            impression_probs_available = impression_probs[available_for_impressions]
+            impression_probs_available = impression_probs_available / impression_probs_available.sum()
+            
+            # Sample M impressions (may have duplicates, we'll deduplicate)
+            impression_indices = np.random.choice(
+                available_for_impressions,
+                size=M,
+                replace=True,  # Allow replacement to get exactly M
+                p=impression_probs_available
+            )
+            impression_set = set(impression_indices)
+            
+            # Remove positive items from impression set
+            impression_set = impression_set - pos_items
+            
+            if len(impression_set) == 0:
+                continue
+            
+            # Sample negatives from impression set
+            k = min(num_negatives_per_user, len(impression_set))
+            
+            if use_hard_negatives:
+                # Hard negative mining: select from top p% by cosine similarity
+                neg_items = self._sample_hard_negatives(
+                    user_id=user_id,
+                    pos_items=pos_items,
+                    impression_set=impression_set,
+                    song_id_to_idx=song_id_to_idx,
+                    idx_to_song_id=idx_to_song_id,
+                    clap_embeddings=clap_embeddings,
+                    k=k,
+                    top_p=hard_negative_top_p,
+                    last_n=last_n,
+                )
+            else:
+                # Random sampling from impression set
+                impression_list = list(impression_set)
+                neg_items = np.random.choice(impression_list, size=k, replace=False)
 
-            k = min(num_negatives_per_user, len(candidate_neg))
-            neg_items = np.random.choice(candidate_neg, size=k, replace=False)
-
-            user_id = idx_to_user_id[u_idx]
             for i_idx in neg_items:
                 song_id = idx_to_song_id[i_idx]
                 events.append(
@@ -443,6 +554,108 @@ class InteractionSimulator:
         )
         
         return sampled_indices.tolist()
+    
+    def _sample_hard_negatives(
+        self,
+        user_id: str,
+        pos_items: set,
+        impression_set: set,
+        song_id_to_idx: Dict[str, int],
+        idx_to_song_id: Dict[int, str],
+        clap_embeddings: Dict[str, np.ndarray],
+        k: int,
+        top_p: float = 0.2,
+        last_n: int = 8,
+    ) -> np.ndarray:
+        """
+        Sample hard negatives from impression set based on cosine similarity.
+        
+        Args:
+            user_id: User ID
+            pos_items: Set of positive item indices
+            impression_set: Set of impression item indices
+            song_id_to_idx: Mapping from song_id to index
+            idx_to_song_id: Mapping from index to song_id
+            clap_embeddings: Dict mapping song_id to CLAP embedding (512-dim)
+            k: Number of negatives to sample
+            top_p: Top p% of impressions by similarity to use as hard negatives
+            last_n: Number of recent interactions for user feature computation
+        
+        Returns:
+            Array of negative item indices
+        """
+        if len(impression_set) == 0:
+            return np.array([], dtype=int)
+        
+        # 1. Compute user_feature: average of last-n positive items' CLAP embeddings
+        pos_item_list = sorted(list(pos_items))  # Sort for consistent ordering
+        n_recent = min(last_n, len(pos_item_list))
+        recent_pos_items = pos_item_list[-n_recent:] if n_recent > 0 else pos_item_list
+        
+        user_feature = None
+        valid_pos_count = 0
+        
+        for pos_idx in recent_pos_items:
+            song_id = idx_to_song_id.get(pos_idx)
+            if song_id and song_id in clap_embeddings:
+                emb = clap_embeddings[song_id]
+                if user_feature is None:
+                    user_feature = emb.copy().astype(np.float32)
+                else:
+                    user_feature += emb.astype(np.float32)
+                valid_pos_count += 1
+        
+        if user_feature is None or valid_pos_count == 0:
+            # Fallback: random sampling if no valid CLAP embeddings
+            impression_list = list(impression_set)
+            return np.random.choice(impression_list, size=min(k, len(impression_list)), replace=False)
+        
+        # Normalize user_feature
+        user_feature = user_feature / valid_pos_count
+        user_feature_norm = np.linalg.norm(user_feature)
+        if user_feature_norm > 0:
+            user_feature = user_feature / user_feature_norm
+        
+        # 2. Compute cosine similarity for each impression item
+        impression_list = list(impression_set)
+        similarities = []
+        valid_impressions = []
+        
+        for imp_idx in impression_list:
+            song_id = idx_to_song_id.get(imp_idx)
+            if song_id and song_id in clap_embeddings:
+                item_emb = clap_embeddings[song_id].astype(np.float32)
+                item_emb_norm = np.linalg.norm(item_emb)
+                if item_emb_norm > 0:
+                    item_emb = item_emb / item_emb_norm
+                    # Cosine similarity
+                    sim = np.dot(user_feature, item_emb)
+                    similarities.append(sim)
+                    valid_impressions.append(imp_idx)
+        
+        if len(valid_impressions) == 0:
+            # Fallback: random sampling
+            return np.random.choice(impression_list, size=min(k, len(impression_list)), replace=False)
+        
+        # 3. Select top p% by similarity
+        similarities = np.array(similarities)
+        valid_impressions = np.array(valid_impressions)
+        
+        # Sort by similarity (descending)
+        sorted_indices = np.argsort(similarities)[::-1]
+        sorted_impressions = valid_impressions[sorted_indices]
+        
+        # Select top p%
+        top_n = max(1, int(len(sorted_impressions) * top_p))
+        top_impressions = sorted_impressions[:top_n]
+        
+        # 4. Randomly sample k from top impressions
+        k_final = min(k, len(top_impressions))
+        if k_final == 0:
+            return np.array([], dtype=int)
+        
+        sampled_indices = np.random.choice(top_impressions, size=k_final, replace=False)
+        return sampled_indices
 
 
 def build_matrix_from_playlists(
@@ -539,6 +752,10 @@ def simulate_playlist_interactions(
     random_seed: int = 42,
     return_events: bool = False,
     num_negatives_per_user: int = 50,
+    impressions_size: int = 50,  # Size of impression set M for each user
+    clap_embeddings: Optional[Dict[str, np.ndarray]] = None,  # CLAP embeddings for hard negative mining
+    hard_negative_top_p: float = 0.2,  # Top p% of impressions by similarity to use as hard negatives
+    last_n: int = 8,  # Number of recent interactions for user feature computation
 ) -> Tuple[csr_matrix, Dict[str, int], Dict[int, str], Dict[str, int], Dict[int, str]]:
     """
     Simulate interactions, optionally starting from real playlist data.
@@ -586,6 +803,10 @@ def simulate_playlist_interactions(
             user_ids,
             return_events=False,
             num_negatives_per_user=0,  # Don't generate negative samples here
+            impressions_size=impressions_size,
+            clap_embeddings=clap_embeddings,
+            hard_negative_top_p=hard_negative_top_p,
+            last_n=last_n,
         )
         
         # Combine real and simulated interactions
@@ -651,6 +872,10 @@ def simulate_playlist_interactions(
         user_ids,
         return_events=return_events,
         num_negatives_per_user=num_negatives_per_user,
+        impressions_size=impressions_size,
+        clap_embeddings=clap_embeddings,
+        hard_negative_top_p=hard_negative_top_p,
+        last_n=last_n,
     )
 
 
@@ -844,6 +1069,7 @@ def _generate_cache_key(
     return_events: bool = False,
     num_negatives_per_user: Optional[int] = None,
     playlist_hash: Optional[str] = None,
+    impressions_size: Optional[int] = None,
 ) -> str:
     """Generate a cache key based on parameters and data"""
     # Create a hash from key parameters and data
@@ -857,6 +1083,7 @@ def _generate_cache_key(
         str(return_events),
         str(num_negatives_per_user) if num_negatives_per_user else "None",
         playlist_hash if playlist_hash else "None",  # Include playlist hash if provided
+        str(impressions_size) if impressions_size else "None",  # Include impressions_size
         # Hash of song IDs and user IDs (first 1000 for speed)
         str(sorted(songs_df['song_id'].unique()[:1000])),
         str(sorted(songs_df['user_id'].unique()[:1000])),
@@ -1060,6 +1287,10 @@ def get_user_item_matrix(
     use_cache: bool = True,
     return_events: bool = False,
     num_negatives_per_user: int = 50,
+    impressions_size: int = 50,  # Size of impression set M for each user
+    clap_embeddings: Optional[Dict[str, np.ndarray]] = None,  # CLAP embeddings for hard negative mining
+    hard_negative_top_p: float = 0.2,  # Top p% of impressions by similarity to use as hard negatives
+    last_n: int = 8,  # Number of recent interactions for user feature computation
 ) -> Tuple[csr_matrix, Dict[str, int], Dict[int, str], Dict[str, int], Dict[int, str]]:
     """
     Get user-item interaction matrix (real or simulated)
@@ -1119,6 +1350,7 @@ def get_user_item_matrix(
                 return_events=return_events,
                 num_negatives_per_user=num_negatives_per_user,
                 playlist_hash=playlist_hash,
+                impressions_size=impressions_size,
             )
             
             cache_dir_path = Path(cache_dir)
@@ -1145,6 +1377,10 @@ def get_user_item_matrix(
             random_seed=random_seed,
             return_events=return_events,
             num_negatives_per_user=num_negatives_per_user,
+            impressions_size=impressions_size,
+            clap_embeddings=clap_embeddings,
+            hard_negative_top_p=hard_negative_top_p,
+            last_n=last_n,
         )
         
         # Save to cache if enabled
@@ -1185,5 +1421,9 @@ def get_user_item_matrix(
             item_cold_start_rate=item_cold_start_rate,
             single_user_item_rate=single_user_item_rate,
             random_seed=random_seed,
+            impressions_size=impressions_size,
+            clap_embeddings=clap_embeddings,
+            hard_negative_top_p=hard_negative_top_p,
+            last_n=last_n,
         )
 

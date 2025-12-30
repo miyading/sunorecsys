@@ -170,7 +170,7 @@ class TwoTowerRecommender(BaseRecommender):
         
         # Determine seed songs
         if user_id and use_last_n and user_id in self.user_history:
-            seed_song_ids = self.user_history[user_id][-50:]  # Last 50 interactions
+            seed_song_ids = self.user_history[user_id][-8:]  # Last 8 interactions (last-n=8)
         elif song_ids:
             seed_song_ids = song_ids
         else:

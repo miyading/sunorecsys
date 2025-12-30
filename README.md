@@ -167,29 +167,38 @@ User: 000fefc6-d99e-41c9-b77e-f58b6689fc76 (has 3 songs)
         Score: 0.3089
         Genre: heavy metal
         From similar user [2226f57a-3073-49ea-9381-d4edd39d4d24]'s last-n
-
 [Recall Channel 3] Two-Tower Content Retrieval (CLAP-based)...
   ✅ Retrieved 30 candidates from Two-Tower
 
   📊 Top 5 Two-Tower Recommendations:
-     1. dialectic (accept it)
-        Score: -0.4579
-        Genre: post-indietronica
-        From user history (average query): [The Fight Of Our Lives], [Last Door Left], [Upside Down Frown]
-     2. Ain't Got a Nickel Ain't Got a Dime
-        Score: -0.5239
-        Genre: up tempo Memphis soul
-     3. ポートフォリオ
-        Score: -0.5465
-        Genre: J Hip Hop
-     4. Golden Sunshine 윤아
-        Score: -0.5571
-        Genre: bossa nova
-     5. Bossa Jazz A Cappella
-        Score: -0.5636
-        Genre: a cappella
+     1. Sakura
+        Artist: e5fbff4f-5d91-4d82-a4d0-7a48c1c598df
+        Score: 0.1417
+        URL: https://suno.com/song/01f5ae63-ab12-48a9-a420-c8aee44bb6cb
+        From user history (average query): [Cifer (6-6-6) #TTChallenge], [Solely "Suno"], [Feel 👁️ My 👁️ Eyeballs ]
+        
+     2. Poutine Pudding #TTChallenge
+        Artist: d81326d8-539c-424f-9e63-074ca7e9d8a8
+        Score: 0.1413
+        URL: https://suno.com/song/560eed74-88b2-4c6d-bbde-1dbb11bf075e
+        
+     3. NA
+        Artist: dd33343e-82e1-4667-80f6-0c65c8ed9808
+        Score: 0.1396
+        URL: https://suno.com/song/d0908e6f-bde4-4a73-8a7f-9c4e22fab9ed
+       
+     4. Good Vibrations
+        Artist: d2dd3b30-149a-49ec-be10-353e8b24d77d
+        Score: 0.1248
+        URL: https://suno.com/song/7d53df89-ed2a-44e6-b6ab-885fd3d41112
 
-📊 Recall Summary: 86 unique candidates retrieved
+     5. Money 💵
+        Artist: dbd094d2-f027-4098-8be2-7ba926a2d1ab
+        Score: 0.1193
+        URL: https://suno.com/song/4e02bb88-cf45-47e2-a1eb-5596aa6655c2
+
+
+📊 Recall Summary: 89 unique candidates retrieved
 
 ================================================================================
 ⚖️  STAGE 2: COARSE RANKING - Quality Filter

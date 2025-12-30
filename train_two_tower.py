@@ -29,7 +29,15 @@ This will:
 1. Load songs from all_playlist_songs.json (3881 songs by default).
 2. Build / load a simulated user-item matrix and event table (positive/negative pairs).
 3. Load CLAP embeddings as item features.
-4. Train a simple two-tower model with InfoNCE loss.
+4. Train a two-tower model with InfoNCE or BPR loss.
+
+    # Training with BPR loss
+    python train_two_tower.py \\
+        --songs sunorecsys/datasets/curl/all_playlist_songs.json \\
+        --clap-embeddings runtime_data/clap_embeddings.json \\
+        --output model_checkpoints/two_tower_bpr.pt \\
+        --loss-type bpr \\
+        --num-negatives 1  # BPR typically uses 1 negative per positive
 """
 
 import argparse
@@ -90,6 +98,36 @@ def main():
         type=int,
         default=10,
         help="Number of negatives per positive sample",
+    )
+    parser.add_argument(
+        "--impressions-size",
+        type=int,
+        default=50,
+        help="Size of impression set M for each user (default: 50)",
+    )
+    parser.add_argument(
+        "--last-n",
+        type=int,
+        default=8,
+        help="Number of recent interactions to use for user representation (default: 8)",
+    )
+    parser.add_argument(
+        "--loss-type",
+        type=str,
+        default="infonce",
+        choices=["infonce", "bpr"],
+        help="Loss type: 'infonce' (default) or 'bpr' (Bayesian Personalized Ranking)",
+    )
+    parser.add_argument(
+        "--use-hard-negatives",
+        action="store_true",
+        help="Use hard negative mining from impressions (requires CLAP embeddings)",
+    )
+    parser.add_argument(
+        "--hard-negative-top-p",
+        type=float,
+        default=0.2,
+        help="Top p%% of impressions by similarity to use as hard negatives (default: 0.2, i.e., top 20%%)",
     )
     parser.add_argument(
         "--resume-from",
@@ -164,8 +202,19 @@ def main():
     print(f"✅ Loaded {len(songs_df)} songs")
     print(f"   Unique users: {songs_df['user_id'].nunique() if 'user_id' in songs_df.columns else 'N/A'}")
 
-    # 2. Build user-item matrix and events (simulated interactions with negatives)
-    print("Building simulated user-item interactions (with events)...")
+    # 2. Load CLAP embeddings if using hard negatives
+    clap_embeddings = None
+    if args.use_hard_negatives:
+        print(f"\nLoading CLAP embeddings for hard negative mining...")
+        clap_embeddings = load_clap_embeddings(args.clap_embeddings)
+        print(f"✅ Loaded {len(clap_embeddings)} CLAP embeddings")
+        print(f"   Hard negative mining: top {args.hard_negative_top_p*100:.0f}% by cosine similarity")
+    else:
+        print(f"\n⚠️  Hard negative mining disabled (use --use-hard-negatives to enable)")
+
+    # 3. Build user-item matrix and events (simulated interactions with negatives)
+    print("\nBuilding simulated user-item interactions (with events)...")
+    print(f"   Impressions size M={args.impressions_size}, Last-n={args.last_n}")
     matrix_and_mappings = get_user_item_matrix(
         songs_df=songs_df,
         aggregated_file=None,
@@ -180,6 +229,10 @@ def main():
         use_cache=True,
         return_events=True,
         num_negatives_per_user=args.num_negatives * 2,  # a few more negatives for sampling
+        impressions_size=args.impressions_size,
+        clap_embeddings=clap_embeddings,
+        hard_negative_top_p=args.hard_negative_top_p if args.use_hard_negatives else 0.2,
+        last_n=args.last_n,
     )
 
     (
@@ -196,10 +249,11 @@ def main():
     print(f"✅ Events: {len(events_df)} rows ({num_positives} positives, {num_negatives} negatives)")
     print(f"   Estimated training samples: ~{num_positives} (each with {args.num_negatives} negatives)")
 
-    # 3. Load CLAP embeddings and build item feature matrix
-    print(f"\nLoading CLAP embeddings from {args.clap_embeddings} ...")
-    clap_embeddings = load_clap_embeddings(args.clap_embeddings)
-    print(f"✅ Loaded {len(clap_embeddings)} CLAP embeddings")
+    # 4. Load CLAP embeddings and build item feature matrix (if not already loaded)
+    if clap_embeddings is None:
+        print(f"\nLoading CLAP embeddings from {args.clap_embeddings} ...")
+        clap_embeddings = load_clap_embeddings(args.clap_embeddings)
+        print(f"✅ Loaded {len(clap_embeddings)} CLAP embeddings")
 
     # Use CLAP dimensionality as base_dim
     first_emb = next(iter(clap_embeddings.values()))
@@ -215,7 +269,7 @@ def main():
     )
     print(f"✅ Item feature matrix: {item_features.shape} (memory: ~{item_features.nbytes / 1024 / 1024:.1f} MB)")
 
-    # 4. Train two-tower model
+    # 5. Train two-tower model
     config = TwoTowerConfig(
         base_dim=item_features.shape[1],
         model_dim=256,
@@ -225,12 +279,16 @@ def main():
         temperature=args.temperature,
         hidden_dim=args.hidden_dim,
         dropout=args.dropout,
+        last_n=args.last_n,
+        loss_type=args.loss_type,
     )
 
     print(f"\nTraining two-tower model...")
     print(f"   Config: model_dim={config.model_dim}, hidden_dim={config.hidden_dim}, "
           f"batch_size={config.batch_size}, num_negatives={config.num_negatives}, "
-          f"epochs={config.num_epochs}, temperature={config.temperature}, dropout={config.dropout}")
+          f"epochs={config.num_epochs}, loss_type={config.loss_type}, "
+          f"temperature={config.temperature}, dropout={config.dropout}, "
+          f"last_n={config.last_n}")
     print(f"   Device: {config.device}")
     if args.resume_from:
         print(f"   Resuming from checkpoint: {args.resume_from}")
@@ -254,7 +312,7 @@ def main():
         final_checkpoint_path=args.output,  # Save final checkpoint with optimizer/scheduler
     )
 
-    # 5. Save final model with optimizer and scheduler state (for resuming)
+    # 6. Save final model with optimizer and scheduler state (for resuming)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

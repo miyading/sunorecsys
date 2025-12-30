@@ -65,6 +65,7 @@ def main():
         # Component toggles
         use_user_cf=True,
         use_two_tower=True,         # Enable two-tower model
+        two_tower_model_path="model_checkpoints/two_tower_hard_neg.pt",  # InfoNCE with hard negative mining
     )
     
     recommender.fit(

@@ -78,9 +78,8 @@ def main():
     
     # Step 1: Load data (try aggregated file first, fallback to processed data)
     print("\n📂 Loading data...")
-        from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
-        
-        aggregated_file = "sunorecsys/datasets/curl/all_playlist_songs.json"
+    from sunorecsys.datasets.simulate_interactions import load_songs_from_aggregated_file
+    aggregated_file = "sunorecsys/datasets/curl/all_playlist_songs.json"
     songs_df = None
     
     # Try loading from aggregated file
