@@ -25,12 +25,12 @@ The system employs a multi-stage hybrid architecture for music recommendation th
 **Status**: ✅ **COMPLETE**
 
 - ✅ **Channel 1: Item-based CF** - User-item interaction matrix based similarity (top-k per seed)
-- ✅ **Channel 2: User-based CF** - Matrix factorization (ALS) based on user-item interactions  
+- ✅ **Channel 2: User-based CF** - User-user cosine similarity based on user-item interactions  
 - ✅ **Channel 3: Two-tower model** - CLAP-based content retrieval (audio embeddings)
 
 **Implementation Details**:
-- Item-based CF uses precomputed item-item similarity matrix
-- User-based CF uses ALS matrix factorization
+- Item-based CF uses precomputed item-item similarity matrix (cosine similarity)
+- User-based CF uses user-user cosine similarity
 - Two-tower model uses CLAP audio embeddings for content retrieval
 - All channels support last-n interactions for Discover Weekly style
 
