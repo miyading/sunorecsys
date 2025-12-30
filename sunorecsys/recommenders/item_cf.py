@@ -8,7 +8,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import joblib
 
 from .base import BaseRecommender
-from ..data.simulate_interactions import get_user_item_matrix
+from ..datasets.simulate_interactions import get_user_item_matrix
 
 
 class ItemBasedCFRecommender(BaseRecommender):

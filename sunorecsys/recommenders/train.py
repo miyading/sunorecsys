@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import pandas as pd
 
-from ..data.preprocess import SongDataProcessor
+from ..datasets.preprocess import SongDataProcessor
 from .hybrid import HybridRecommender
 
 

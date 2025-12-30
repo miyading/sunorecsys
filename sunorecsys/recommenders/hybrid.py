@@ -13,7 +13,7 @@ from .user_based import UserBasedRecommender
 from .quality_filter import QualityFilter
 from .two_tower_recommender import TwoTowerRecommender
 from .din_ranker import DINRanker
-from ..data.user_history import UserHistoryManager
+from ..datasets.user_history import UserHistoryManager
 from ..utils.music_flamingo_quality import MusicFlamingoQualityScorer
 
 
