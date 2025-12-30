@@ -320,7 +320,7 @@ Final Recommendations
 
 ## Documentation
 
-- **[DISCOVER_WEEKLY.md](DISCOVER_WEEKLY.md)** - Complete Discover Weekly implementation guide and system design summary
-- **[CHANNEL_STRUCTURE.md](CHANNEL_STRUCTURE.md)** - Detailed channel architecture and design choices
-- **[SIMULATED_INTERACTIONS.md](SIMULATED_INTERACTIONS.md)** - Data simulation documentation
-- **[MUSIC_FLAMINGO_QUALITY.md](MUSIC_FLAMINGO_QUALITY.md)** - Music Flamingo integration guide
+- **[DISCOVER_WEEKLY.md](docs/DISCOVER_WEEKLY.md)** - Complete Discover Weekly implementation guide and system design summary
+- **[CHANNEL_STRUCTURE.md](docs/CHANNEL_STRUCTURE.md)** - Detailed channel architecture and design choices
+- **[SIMULATED_INTERACTIONS.md](docs/SIMULATED_INTERACTIONS.md)** - Data simulation documentation
+- **[MUSIC_FLAMINGO_QUALITY.md](docs/MUSIC_FLAMINGO_QUALITY.md)** - Music Flamingo integration guide
