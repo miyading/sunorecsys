@@ -24,35 +24,38 @@ class HybridRecommender(BaseRecommender):
     Stage 1 (Recall): Candidate Retrieval
     - Channel 1: Item-based CF
     - Channel 2: User-based CF
-    - Channel 3: Two-tower model (CLAP-based content retrieval)
+    - Channel 3: Two-tower model (CLAP-based content retrieval - audio)
+    - Channel 4: Prompt-based similarity (CLAP text embeddings - creative intent)
     
     Stage 2 (Coarse Ranking): Quality Filter
-    - Channel 4: Quality filter
+    - Channel 5: Quality filter
     
     Stage 3 (Fine Ranking): CTR Prediction
-    - Channel 5: DIN with attention (CTR prediction using user history)
-    - Channel 6: Prompt-based similarity using CLAP text embeddings (aligned with audio)
+    - Channel 6: DIN with attention (CTR prediction using user history)
     
     Stage 4 (Re-ranking): Final Ranking
     - Music Flamingo (optional, computationally intensive)
     
     Note: CLAP provides aligned text-audio embeddings, enabling direct similarity
     between prompts and audio tracks without cross-modal alignment.
+    Prompt-based channel uses prompts from user's listening history (songs by
+    other artists) to find similar songs in the catalog - this is a recall task,
+    not a diversity signal for ranking.
     """
     
     def __init__(
         self,
         # Stage 1 (Recall) weights
-        item_cf_weight: float = 0.30,      # Channel 1: Item-based CF
-        user_cf_weight: float = 0.30,      # Channel 2: User-based CF
-        two_tower_weight: float = 0.40,    # Channel 3: Two-tower content retrieval
+        item_cf_weight: float = 0.25,      # Channel 1: Item-based CF
+        user_cf_weight: float = 0.25,      # Channel 2: User-based CF
+        two_tower_weight: float = 0.35,    # Channel 3: Two-tower content retrieval
+        prompt_weight: float = 0.15,       # Channel 4: Prompt-based similarity
         # Stage 2 (Coarse Ranking) - Quality filter (no weight, just filtering)
         quality_threshold: float = 0.3,
         use_quality_filter: bool = True,
         quality_scores_file: Optional[str] = None,
         # Stage 3 (Fine Ranking) weights
-        din_weight: float = 0.70,          # Channel 5: DIN with attention (CTR prediction)
-        prompt_weight: float = 0.30,        # Channel 6: Prompt-based (user exploration)
+        din_weight: float = 1.0,           # Channel 6: DIN with attention (CTR prediction)
         din_model_path: Optional[str] = None,  # Path to trained DIN model (optional)
         # Stage 4 (Re-ranking)
         use_music_flamingo: bool = False,
@@ -61,6 +64,7 @@ class HybridRecommender(BaseRecommender):
         # Component toggles
         use_user_cf: bool = True,
         use_two_tower: bool = True,
+        use_prompt_based: bool = True,     # Toggle for prompt-based channel
         two_tower_model_path: str = "model_checkpoints/two_tower.pt",
         two_tower_clap_path: str = "runtime_data/clap_embeddings.json",
         history_manager: Optional[UserHistoryManager] = None,
@@ -72,13 +76,13 @@ class HybridRecommender(BaseRecommender):
         self.item_cf_weight = item_cf_weight
         self.user_cf_weight = user_cf_weight
         self.two_tower_weight = two_tower_weight
+        self.prompt_weight = prompt_weight
         # Stage 2 (Coarse Ranking) - Quality filter
         self.quality_threshold = quality_threshold
         self.use_quality_filter = use_quality_filter
         self.quality_scores_file = quality_scores_file
         # Stage 3 (Fine Ranking) weights
         self.din_weight = din_weight
-        self.prompt_weight = prompt_weight
         self.din_model_path = din_model_path
         # Stage 4 (Re-ranking)
         self.use_music_flamingo = use_music_flamingo
@@ -87,6 +91,7 @@ class HybridRecommender(BaseRecommender):
         # Component toggles
         self.use_user_cf = use_user_cf
         self.use_two_tower = use_two_tower
+        self.use_prompt_based = use_prompt_based
         self.two_tower_model_path = two_tower_model_path
         self.two_tower_clap_path = two_tower_clap_path
         self.use_last_n = use_last_n
@@ -102,11 +107,11 @@ class HybridRecommender(BaseRecommender):
         self.item_cf_recommender = None
         self.user_recommender = None
         self.two_tower_recommender = None
+        self.prompt_recommender = None
         # Stage 2 (Coarse Ranking)
         self.quality_filter = None
         # Stage 3 (Fine Ranking)
         self.din_ranker = None  # DIN ranker for CTR prediction
-        self.prompt_recommender = None
         # Stage 4 (Re-ranking)
         self.music_flamingo_scorer = None
         
@@ -207,6 +212,40 @@ class HybridRecommender(BaseRecommender):
                             seed_info.append(f"[{seed_title}]({seed_url})")
                     if seed_info:
                         print(f"        From user history (average query): {', '.join(seed_info)}")
+            
+            elif channel_name == "Prompt-Based" and 'seed_song_ids' in details:
+                seed_song_ids = details.get('seed_song_ids', [])
+                
+                # Get the recommended song's prompt
+                recommended_song_rows = self.songs_df[self.songs_df['song_id'] == song_id]
+                recommended_prompt = ''
+                if not recommended_song_rows.empty:
+                    recommended_prompt = recommended_song_rows.iloc[0].get('prompt', '')
+                
+                if recommended_prompt:
+                    prompt_preview = recommended_prompt[:200] + "..." if len(recommended_prompt) > 200 else recommended_prompt
+                    print(f"        Recommended song prompt: {prompt_preview}")
+                
+                if seed_song_ids:
+                    print(f"        From user history seed songs ({len(seed_song_ids)} seed(s) recommended this):")
+                    
+                    # Show seed songs with their prompts (these are the specific seeds that found this recommendation)
+                    for seed_id in seed_song_ids[:5]:  # Show up to 5 seed songs
+                        seed_rows = self.songs_df[self.songs_df['song_id'] == seed_id]
+                        if not seed_rows.empty:
+                            seed_data = seed_rows.iloc[0]
+                            seed_title = seed_data.get('title', seed_id)
+                            seed_prompt = seed_data.get('prompt', '')
+                            seed_url = f"https://suno.com/song/{seed_id}"
+                            
+                            if seed_prompt:
+                                prompt_preview = seed_prompt[:150] + "..." if len(seed_prompt) > 150 else seed_prompt
+                                print(f"          - [{seed_title}]({seed_url}): {prompt_preview}")
+                            else:
+                                print(f"          - [{seed_title}]({seed_url})")
+                    
+                    if len(seed_song_ids) > 5:
+                        print(f"          ... and {len(seed_song_ids) - 5} more seed songs")
     
     def fit(
         self,
@@ -292,6 +331,26 @@ class HybridRecommender(BaseRecommender):
             print("-"*80)
             self.two_tower_recommender = None
         
+        # Channel 4: Prompt-based similarity (creative intent matching)
+        if self.use_prompt_based:
+            print("\n" + "-"*80)
+            print("[Recall Channel 4] Prompt-Based Similarity (Creative Intent Matching)")
+            print("-"*80)
+            print("  → Building prompt similarity index using CLAP text embeddings...")
+            print("  → Note: Uses prompts from user's listening history (songs by other artists)")
+            self.prompt_recommender = PromptBasedRecommender(
+                use_clap=True,  # Use CLAP text embeddings (aligned with audio)
+                clap_model_path=kwargs.get('clap_model_path'),
+                clap_cache_dir=kwargs.get('clap_cache_dir', 'runtime_data/audio_cache')
+            )
+            self.prompt_recommender.fit(songs_df, user_history=user_history, **kwargs)
+            print("  ✅ Prompt-Based ready (using CLAP aligned embeddings)")
+        else:
+            print("\n" + "-"*80)
+            print("[Recall Channel 4] Prompt-Based Similarity - SKIPPED")
+            print("-"*80)
+            self.prompt_recommender = None
+        
         # ========================================================================
         # STAGE 2: COARSE RANKING - Quality Filter
         # ========================================================================
@@ -326,20 +385,6 @@ class HybridRecommender(BaseRecommender):
         )
         self.din_ranker.fit(songs_df, user_history=user_history, **kwargs)
         
-        
-        # Channel 6: Prompt-based similarity (user exploration)
-        print("\n" + "-"*80)
-        print("[Fine Ranking Channel 6] Prompt-Based Similarity (User Exploration)")
-        print("-"*80)
-        print("  → Building prompt similarity index using CLAP text embeddings...")
-        self.prompt_recommender = PromptBasedRecommender(
-            use_clap=True,  # Use CLAP text embeddings (aligned with audio)
-            clap_model_path=kwargs.get('clap_model_path'),
-                clap_cache_dir=kwargs.get('clap_cache_dir', 'runtime_data/audio_cache')
-        )
-        self.prompt_recommender.fit(songs_df, user_history=user_history, **kwargs)
-        print("  ✅ Prompt-Based ready (using CLAP aligned embeddings)")
-        
         # ========================================================================
         # STAGE 4: RE-RANKING - Music Flamingo
         # ========================================================================
@@ -359,9 +404,9 @@ class HybridRecommender(BaseRecommender):
         print("✅ Hybrid Recommender Fitted Successfully!")
         print("="*80)
         print("Architecture:")
-        print("  Stage 1 (Recall): Item CF, User CF, Two-Tower")
+        print("  Stage 1 (Recall): Item CF, User CF, Two-Tower (audio), Prompt-Based (text)")
         print("  Stage 2 (Coarse Ranking): Quality Filter")
-        print("  Stage 3 (Fine Ranking): DIN (CTR Prediction), Prompt-Based")
+        print("  Stage 3 (Fine Ranking): DIN (CTR Prediction)")
         print("  Stage 4 (Re-ranking): Music Flamingo" + (" (enabled)" if self.use_music_flamingo else " (disabled)"))
     
     def recommend(
@@ -533,6 +578,46 @@ class HybridRecommender(BaseRecommender):
                     print(f"\n  📊 Top 5 Two-Tower Recommendations:")
                     self._display_channel_top5(two_tower_top5, "Two-Tower")
         
+        # Channel 4: Prompt-based similarity (creative intent matching)
+        if self.use_prompt_based and self.prompt_recommender:
+            if return_details:
+                print("\n[Recall Channel 4] Prompt-Based Similarity (Creative Intent Matching)...")
+                print("  → Finding songs with prompts similar to user's listening history...")
+            prompt_recs = self.prompt_recommender.recommend(
+                user_id=user_id,
+                song_ids=song_ids,
+                n=n * 3,  # Get more candidates for recall stage
+                exclude_song_ids=list(seed_song_ids),
+                return_details=return_details,
+                use_last_n=use_last_n_flag,
+                top_k_per_seed=5,  # Find top-5 most similar for each seed song (matching Item CF)
+                exclude_same_artist=kwargs.get('exclude_same_artist', True),  # Default: exclude songs from seed artists
+            )
+            prompt_count = 0
+            prompt_valid = []  # Store valid (non-seed) recommendations for sorting
+            for rec in prompt_recs:
+                song_id = rec['song_id']
+                if song_id in seed_song_ids:
+                    continue  # Skip seed songs
+                if song_id not in all_recommendations:
+                    all_recommendations[song_id] = {
+                        'song_id': song_id,
+                        'scores': defaultdict(float),
+                        'metadata': rec,
+                    }
+                all_recommendations[song_id]['scores']['prompt_based'] = rec['score'] * self.prompt_weight
+                prompt_count += 1
+                prompt_valid.append(rec)
+            
+            # Sort by score and get top 5
+            prompt_top5 = sorted(prompt_valid, key=lambda x: x.get('score', 0), reverse=True)[:5]
+            
+            if return_details:
+                print(f"  ✅ Retrieved {prompt_count} candidates from Prompt-Based")
+                if prompt_top5:
+                    print(f"\n  📊 Top 5 Prompt-Based Recommendations:")
+                    self._display_channel_top5(prompt_top5, "Prompt-Based")
+        
         if return_details:
             print(f"\n📊 Recall Summary: {len(all_recommendations)} unique candidates retrieved")
         
@@ -614,29 +699,13 @@ class HybridRecommender(BaseRecommender):
             print("🎯 STAGE 3: FINE RANKING - CTR Prediction")
             print("="*80)
         
-        # Channel 5: DIN with attention (CTR prediction)
+        # Channel 6: DIN with attention (CTR prediction)
         if return_details:
-            print("\n[Fine Ranking Channel 5] DIN with Attention (CTR Prediction)...")
+            print("\n[Fine Ranking Channel 6] DIN with Attention (CTR Prediction)...")
         
-        # Channel 6: Prompt-based similarity (user exploration)
-        if return_details:
-            print("\n[Fine Ranking Channel 6] Prompt-Based Similarity (User Exploration)...")
-        
-        # Get prompt-based recommendations for top candidates
+        # Get top candidates for fine ranking
         top_candidates_for_fine = coarse_scores[:min(len(coarse_scores), n * 5)]  # Top 5n for fine ranking
         top_candidate_ids = [c['song_id'] for c in top_candidates_for_fine]
-        
-        prompt_recs = self.prompt_recommender.recommend(
-            user_id=user_id,
-            song_ids=song_ids,
-            n=len(top_candidate_ids),
-            exclude_song_ids=list(seed_song_ids),
-            return_details=return_details,
-            use_last_n=use_last_n_flag,
-        )
-        
-        # Create prompt score map
-        prompt_scores = {rec['song_id']: rec['score'] for rec in prompt_recs}
         
         # Predict CTR using DIN for all candidates
         if self.din_ranker and self.din_ranker.is_fitted:
@@ -660,15 +729,12 @@ class HybridRecommender(BaseRecommender):
         for candidate in top_candidates_for_fine:
             song_id = candidate['song_id']
             
-            # Get prompt score (for user exploration)
-            prompt_score = prompt_scores.get(song_id, 0.0) * self.prompt_weight
-            
-            # DIN CTR score
+            # DIN CTR score (only channel in fine ranking now)
             ctr_score = din_ctr_scores.get(song_id, 0.5)  # Default CTR if not predicted
             din_score = ctr_score * self.din_weight
             
-            # Combine fine ranking scores
-            fine_score = din_score + prompt_score
+            # Fine score is just DIN score
+            fine_score = din_score
             
             # Track which stage and channel contributed
             stage_channel_info = {
@@ -682,7 +748,6 @@ class HybridRecommender(BaseRecommender):
                 'fine_ranking_stage': {
                     'din_ctr_score': ctr_score,
                     'din_score': din_score,
-                    'prompt_score': prompt_score,
                     'total_score': fine_score,
                 },
             }
@@ -692,7 +757,6 @@ class HybridRecommender(BaseRecommender):
                 'fine_score': fine_score,
                 'din_ctr_score': ctr_score,
                 'din_score': din_score,
-                'prompt_score': prompt_score,
                 'stage_channel_info': stage_channel_info,
             })
         
@@ -700,7 +764,7 @@ class HybridRecommender(BaseRecommender):
         fine_scores.sort(key=lambda x: x['fine_score'], reverse=True)
         
         if return_details:
-            print(f"  ✅ Fine Ranking: {len(fine_scores)} candidates scored with DIN (CTR prediction) + Prompt")
+            print(f"  ✅ Fine Ranking: {len(fine_scores)} candidates scored with DIN (CTR prediction)")
         
         # ========================================================================
         # STAGE 4: RE-RANKING - Music Flamingo

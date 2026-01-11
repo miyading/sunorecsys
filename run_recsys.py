@@ -50,21 +50,22 @@ def main():
     
     recommender = HybridRecommender(
         # Stage 1 (Recall) weights
-        item_cf_weight=0.30,        # Channel 1: Item-based CF
-        user_cf_weight=0.30,        # Channel 2: User-based CF
-        two_tower_weight=0.40,      # Channel 3: Two-tower content retrieval (CLAP-based)
+        item_cf_weight=0.25,        # Channel 1: Item-based CF
+        user_cf_weight=0.25,        # Channel 2: User-based CF
+        two_tower_weight=0.35,      # Channel 3: Two-tower content retrieval (audio)
+        prompt_weight=0.15,         # Channel 4: Prompt-based similarity (text/creative intent)
         # Stage 2 (Coarse Ranking) - Quality filter (no weight, just filtering)
         quality_threshold=0.3,
         use_quality_filter=True,
         # Stage 3 (Fine Ranking) weights
-        din_weight=0.70,            # Channel 5: DIN with attention (CTR prediction)
-        prompt_weight=0.30,         # Channel 6: Prompt-based (user exploration)
+        din_weight=1.0,             # Channel 6: DIN with attention (CTR prediction)
         din_model_path="model_checkpoints/din_ranker.pt",  # Path to trained DIN model
         # Stage 4 (Re-ranking) - Music Flamingo (optional)
         use_music_flamingo=False,
         # Component toggles
         use_user_cf=True,
         use_two_tower=True,         # Enable two-tower model
+        use_prompt_based=True,      # Enable prompt-based channel
         two_tower_model_path="model_checkpoints/two_tower_hard_neg.pt",  # InfoNCE with hard negative mining
     )
     
@@ -140,10 +141,35 @@ def main():
     active_users = user_counts[user_counts >= 3].index.tolist()
     
     if active_users:
-        user_id = active_users[0]
+        user_id = active_users[0]        # Use the first user 
+        # user_id = active_users[1]
         # user_id = 'a4ba3b12-33df-4e4b-99e1-0d11469aa159' #MusicTek userID
         user_songs = songs_df[songs_df['user_id'] == user_id]['song_id'].tolist()
-        print(f"User: {user_id} (has {len(user_songs)} songs)")
+        print(f"User: {user_id} (user #{user_idx + 1} of {len(active_users)}, has {len(user_songs)} songs)")
+        
+        # Get seed songs (last-n interactions) for debugging
+        if hasattr(recommender, 'history_manager') and recommender.history_manager:
+            seed_songs = recommender.history_manager.get_user_interactions(
+                user_id,
+                use_weekly_mixing=True
+            )
+            if seed_songs:
+                print(f"\n📊 Seed Songs (last-n interactions): {len(seed_songs)} songs")
+                print("-" * 80)
+                for i, song_id in enumerate(seed_songs, 1):
+                    song_row = songs_df[songs_df['song_id'] == song_id]
+                    if not song_row.empty:
+                        title = song_row.iloc[0].get('title', 'N/A')
+                        prompt = song_row.iloc[0].get('prompt', '')
+                        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+                        print(f"  {i:2d}. {title}")
+                        print(f"      Song ID: {song_id}")
+                        print(f"      URL: https://suno.com/song/{song_id}")
+                        if prompt:
+                            print(f"      Prompt: {prompt_preview}")
+                    else:
+                        print(f"  {i:2d}. {song_id} (not found in songs_df)")
+                print("-" * 80)
         
         user_recommendations = recommender.recommend(
             user_id=user_id,
@@ -175,12 +201,9 @@ def main():
                         print(f"       - {channel}: {score:.4f}")
             
             # Show fine ranking scores
-            if 'din_score' in rec or 'prompt_score' in rec:
+            if 'din_score' in rec:
                 print(f"     Fine Ranking Scores:")
-                if 'din_score' in rec:
-                    print(f"       - DIN (CTR Prediction): {rec['din_score']:.4f}")
-                if 'prompt_score' in rec:
-                    print(f"       - Prompt-based: {rec['prompt_score']:.4f}")
+                print(f"       - DIN (CTR Prediction): {rec['din_score']:.4f}")
             
             # Show metadata (no lyrics)
             if 'genre' in rec:

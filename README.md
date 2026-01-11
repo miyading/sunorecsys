@@ -20,6 +20,7 @@ The system implements a **four-stage hybrid architecture** for discover weekly m
 - **Item-based CF**: Item-item similarity, top-k per seed from user history
 - **User-based CF**: User-user similarity, top-k per seed from user history
 - **Two-tower**: Average of CLAP audio embeddings to represent user for user tower, CLAP audio embedding for item tower
+- **Prompt-based**: CLAP text embeddings (aligned with audio) for creative intent matching - finds songs with prompts similar to user's listening history
 
 **Stage 2 (Coarse Ranking)**:
 - **Quality Filter**: Engagement-based scoring (plays, upvotes, comments)
@@ -27,7 +28,6 @@ The system implements a **four-stage hybrid architecture** for discover weekly m
 
 **Stage 3 (Fine Ranking)**:
 - **DIN**: Attention-based aggregation of user history for CTR prediction
-- **Prompt-based**: CLAP text embeddings (aligned with audio) for creative intent matching
 
 **Stage 4 (Re-ranking)**:
 - ⚠️ **TODO** Optional Music Flamingo quality-based re-ranking
@@ -38,14 +38,13 @@ The system implements a **four-stage hybrid architecture** for discover weekly m
 
 1. **Multi-Modal Alignment**: CLAP provides aligned text-audio embeddings, enabling direct similarity between prompts and audio tracks
 2. **DIN for CTR Prediction**: Attention-based aggregation of user history for personalized ranking
-3. **Hierarchical Aggregation Potential**: Same attention mechanism can aggregate tracks → artists
 4. **AI Music Platform Specificity**: Leverages prompt-based creative intent as a unique signal
 
 ### ⚠️ Future Enhancements (TODOs)
 
 1. **Meta Audiobox Aesthetics Integration** - Enhance quality scoring with actual music quality models
 2. **Music Flamingo Optimization** - Through automatic captioning and LLM reasoning, optimize diversity and chaining in final playlist
-3. **Hierarchical Embedding Aggregation** - Implement artist-level aggregation from track embeddings using DIN-style attention
+3. **Hierarchical Embedding Aggregation** - Same DIN-style attention mechanism can aggregate tracks → artists. 
 4. **Batch Processing**: Use batch recommendations for multiple users
 5. **Model Update** - Train on actual user interaction data, with weekly retraining
 6. **Monitoring**: Track recommendation quality and user engagement
@@ -72,7 +71,7 @@ sunorecsys/                    # Project root
 │   │   ├── two_tower_recommender.py  # CLAP-based retrieval (Stage 1)
 │   │   ├── quality_filter.py  # Quality filtering (Stage 2)
 │   │   ├── din_ranker.py      # DIN for CTR prediction (Stage 3)
-│   │   └── prompt_based.py    # CLAP text embeddings (Stage 3)
+│   │   └── prompt_based.py    # CLAP text embeddings (Stage 1)
 │   ├── evaluation/            # Evaluation metrics
 │   ├── utils/                 # Utility functions
 │   │   ├── clap_embeddings.py      # CLAP audio & text embeddings
@@ -232,7 +231,6 @@ Top Recommendations:
        - user_cf: 0.0503
      Fine Ranking Scores:
        - DIN (CTR Prediction): 0.3329
-       - Prompt-based: 0.0000
      Genre: Synth-driven J-Pop Idol-kei
 
  2. ひかりの岸辺 (https://suno.com/song/f245d20e-241d-4a5e-886a-cfeefc0e872a)
@@ -243,7 +241,6 @@ Top Recommendations:
        - user_cf: 0.0949
      Fine Ranking Scores:
        - DIN (CTR Prediction): 0.3262
-       - Prompt-based: 0.0000
      Genre: Bouzouki-based Rebetiko
 
  3. Air Flows (https://suno.com/song/4914561d-5689-4dd5-ab6d-7262d0606fe2)
@@ -254,7 +251,6 @@ Top Recommendations:
        - item_cf: 0.1549
      Fine Ranking Scores:
        - DIN (CTR Prediction): 0.3199
-       - Prompt-based: 0.0000
      Genre: orchestra
 
  4. Доторкнутися до любові    #Поезія_Птасі  #TTChallenge (https://suno.com/song/23342062-b394-431f-985f-24eebf84e958)
@@ -265,7 +261,6 @@ Top Recommendations:
        - user_cf: 0.0500
      Fine Ranking Scores:
        - DIN (CTR Prediction): 0.3197
-       - Prompt-based: 0.0000
      Genre: Hypnotic
 
 [Step 4] Statistics

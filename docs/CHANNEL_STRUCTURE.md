@@ -113,9 +113,48 @@ The system uses a four-stage pipeline. Channels are organized by their stage in 
 
 ---
 
+### Channel 4: Prompt-Based Similarity (`PromptBasedRecommender`)
+**Type**: Content-Based  
+**Method**: CLAP text embeddings (aligned with audio) for creative intent matching
+
+**How it works**:
+- Uses CLAP text embeddings of generation prompts (aligned with audio embeddings)
+- Takes seed songs from user's **listening history** (songs created by other artists, not user's own creations)
+- Computes similarity between prompts of seed songs from listening history and prompts of candidate songs in the catalog
+- Averages user's last-n prompt embeddings from listened songs to create query vector
+- Retrieves songs with similar creative intent (prompt similarity) from the catalog using Annoy index
+
+**Why Recall Stage**:
+In this system, seed songs come from the user's simulated listening history—these are songs that other artists created, not the user's own creations. The prompt-based channel finds which songs in the catalog have generation prompts similar to the prompts of songs the user has listened to. This is fundamentally a candidate retrieval task: given a user's listening history, find songs in the catalog whose creative intent (captured by prompts) matches the creative intent of songs they've consumed. This is different from adding diversity to final recommendations (which would be a ranking/exploration signal). If seed songs were instead the user's own created songs (their generation prompts), then prompt-based similarity could serve as a diversity signal in fine ranking, similar to how ads are directly inserted (直接插入) in industry to occasionally show users content similar to what they create. However, with listening history as seeds, it's a retrieval task.
+
+**Key Features**:
+- Unique to AI-generated music platforms
+- Leverages aligned text-audio embedding space (CLAP)
+- Captures creative intent through prompt similarity
+- Fast retrieval using precomputed CLAP text embeddings with Annoy index
+
+**Data Required**:
+- CLAP text embeddings for song generation prompts
+- User interaction history (for last-n prompts from listened songs)
+
+**Design Choices**:
+- **CLAP Text Embeddings**: Uses CLAP's text encoder (aligned with audio)
+- **Full Prompt Embedding**: Embeds entire prompt text (including lyrics, structure markers)
+- **Average Embedding for Multiple Seeds**: Averages embeddings of seed songs' prompts to create query vector
+- **Aligned Embedding Space**: Text and audio embeddings in same space enable unified similarity
+- **Recall Stage Placement**: Positioned in recall because it retrieves candidates from catalog based on prompt similarity to listened songs
+
+**Assumptions**:
+- Similar prompts produce similar-sounding music (strong for well-trained models)
+- Prompts contain sufficient information for similarity
+- CLAP's aligned text-audio space enables effective prompt-based retrieval
+- User's listening history reflects their prompt preferences (i.e., if they listened to songs with certain prompts, they may like other songs with similar prompts)
+
+---
+
 ## Stage 2: Coarse Ranking - Quality Filter
 
-### Channel 4: Quality Filtering (`QualityFilter`)
+### Channel 5: Quality Filtering (`QualityFilter`)
 **Type**: Filter  
 **Method**: Engagement-based quality scoring
 
@@ -149,7 +188,7 @@ The system uses a four-stage pipeline. Channels are organized by their stage in 
 
 ## Stage 3: Fine Ranking - CTR Prediction
 
-### Channel 5: DIN with Attention (`DINRanker`)
+### Channel 6: DIN with Attention (`DINRanker`)
 **Type**: Deep Learning / CTR Prediction  
 **Method**: Attention-based aggregation of user history for CTR prediction
 
@@ -181,39 +220,6 @@ The system uses a four-stage pipeline. Channels are organized by their stage in 
 - Attention mechanism captures relevant historical patterns
 - CLAP embeddings are sufficient for CTR prediction
 - User's recent interactions are predictive of future clicks
-
----
-
-### Channel 6: Prompt-Based Similarity (`PromptBasedRecommender`)
-**Type**: Content-Based  
-**Method**: CLAP text embeddings (aligned with audio) for creative intent matching
-
-**How it works**:
-- Uses CLAP text embeddings of generation prompts (aligned with audio embeddings)
-- Computes similarity between user's last-n prompt embeddings and candidate song prompts
-- Averages user's last-n prompt embeddings to create query vector
-- Returns songs with similar creative intent (prompt similarity)
-
-**Key Features**:
-- Unique to AI-generated music platforms
-- Leverages aligned text-audio embedding space (CLAP)
-- Captures creative intent through prompt similarity
-- Fast retrieval using precomputed CLAP text embeddings
-
-**Data Required**:
-- CLAP text embeddings for song generation prompts
-- User interaction history (for last-n prompts)
-
-**Design Choices**:
-- **CLAP Text Embeddings**: Uses CLAP's text encoder (aligned with audio)
-- **Full Prompt Embedding**: Embeds entire prompt text (including lyrics, structure markers)
-- **Average Embedding for Multiple Seeds**: Averages embeddings of seed songs to create query vector
-- **Aligned Embedding Space**: Text and audio embeddings in same space enable unified similarity
-
-**Assumptions**:
-- Similar prompts produce similar-sounding music (strong for well-trained models)
-- Prompts contain sufficient information for similarity
-- CLAP's aligned text-audio space enables effective prompt-based retrieval
 
 ---
 
@@ -261,25 +267,25 @@ The system uses a four-stage pipeline. Channels are organized by their stage in 
 - **Rationale**: Prevents one channel from dominating, makes weights comparable
 
 **3. Stage-wise Processing**
-- **Stage 1 (Recall)**: Combines Item CF, User CF, Two-Tower scores (weighted sum)
+- **Stage 1 (Recall)**: Combines Item CF, User CF, Two-Tower (audio), and Prompt-Based (text) scores (weighted sum)
 - **Stage 2 (Coarse Ranking)**: Quality filter removes low-quality candidates
-- **Stage 3 (Fine Ranking)**: Combines DIN CTR scores and Prompt-based scores (weighted sum)
+- **Stage 3 (Fine Ranking)**: DIN CTR prediction for personalized ranking
 
 ### Default Weights
 
 ```python
 HybridRecommender(
     # Stage 1 (Recall)
-    item_cf_weight=0.30,        # Channel 1: Item-based CF
-    user_cf_weight=0.30,        # Channel 2: User-based CF
-    two_tower_weight=0.40,      # Channel 3: Two-tower content retrieval
+    item_cf_weight=0.25,        # Channel 1: Item-based CF
+    user_cf_weight=0.25,        # Channel 2: User-based CF
+    two_tower_weight=0.35,      # Channel 3: Two-tower content retrieval (audio)
+    prompt_weight=0.15,          # Channel 4: Prompt-based similarity (text/creative intent)
     
     # Stage 2 (Coarse Ranking)
-    quality_threshold=0.3,       # Channel 4: Quality filter (no weight, just filtering)
+    quality_threshold=0.3,       # Channel 5: Quality filter (no weight, just filtering)
     
     # Stage 3 (Fine Ranking)
-    din_weight=0.70,             # Channel 5: DIN CTR prediction
-    prompt_weight=0.30,          # Channel 6: Prompt-based similarity
+    din_weight=1.0,              # Channel 6: DIN CTR prediction (only channel in this stage)
     
     use_last_n=True,             # Default: use last-n interactions
 )

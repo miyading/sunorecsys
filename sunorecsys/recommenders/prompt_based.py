@@ -223,13 +223,17 @@ class PromptBasedRecommender(BaseRecommender):
         exclude_song_ids: Optional[List[str]] = None,
         return_details: bool = False,
         use_last_n: bool = True,
+        top_k_per_seed: int = 5,
+        exclude_same_artist: bool = True,
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
-        Recommend songs based on prompt similarity to seed songs
+        Recommend songs based on prompt similarity to seed songs (Discover Weekly style)
         
         Args:
             use_last_n: If True and user_id provided, use last-n interactions from user history
+            top_k_per_seed: For each seed song, find top-k most similar (then dedup and aggregate)
+            exclude_same_artist: If True, exclude songs from artists that already have a song in the results
         """
         if not self.is_fitted:
             raise ValueError("Recommender not fitted. Call fit() first.")
@@ -239,56 +243,215 @@ class PromptBasedRecommender(BaseRecommender):
             if user_id in self.user_history:
                 last_n_interactions = self.user_history[user_id][-n:] if len(self.user_history[user_id]) > n else self.user_history[user_id]
                 if last_n_interactions:
-                    song_ids = last_n_interactions
+                    # Handle both formats: list of song_ids (strings) or list of interaction dicts
+                    if isinstance(last_n_interactions[0], dict) and 'song_id' in last_n_interactions[0]:
+                        # Extract song_ids from interaction dicts
+                        song_ids = [item['song_id'] for item in last_n_interactions]
+                    else:
+                        # Already a list of song_ids (strings)
+                        song_ids = last_n_interactions
         
         if not song_ids:
             return self._get_popular_songs(n)
         
-        # Get average prompt embedding of seed songs
-        seed_indices = [self.song_id_to_idx[sid] for sid in song_ids if sid in self.song_id_to_idx]
+        # Get seed song indices (deduplicate to avoid processing same seed song multiple times)
+        # If user listened to same song multiple times, we only process it once as a seed
+        unique_song_ids = list(dict.fromkeys(song_ids))  # Preserve order, remove duplicates
+        seed_indices = [self.song_id_to_idx[sid] for sid in unique_song_ids if sid in self.song_id_to_idx]
         
         if not seed_indices:
             return self._get_popular_songs(n)
         
-        seed_embeddings = self.prompt_embeddings[seed_indices]
-        avg_embedding = seed_embeddings.mean(axis=0)
-        avg_embedding = avg_embedding / (np.linalg.norm(avg_embedding) + 1e-8)
+        # If exclude_same_artist is True, get artist IDs from seed songs to exclude them
+        seed_artist_ids = set()
+        if exclude_same_artist:
+            for seed_song_id in unique_song_ids:
+                seed_rows = self.songs_df[self.songs_df['song_id'] == seed_song_id]
+                if not seed_rows.empty:
+                    artist_id = seed_rows.iloc[0].get('user_id')  # user_id represents artist/creator in Suno
+                    if artist_id:
+                        seed_artist_ids.add(artist_id)
         
-        # Find similar songs
+        # Discover Weekly style: For each seed song, find top-k most similar
+        # Then aggregate and deduplicate by prompt (early deduplication)
+        all_candidates = {}  # song_idx -> list of (similarity_score, seed_song_id)
+        
+        # Helper function to normalize prompt for deduplication
+        def normalize_prompt_for_dedup(prompt: str) -> str:
+            """Normalize prompt for deduplication - removes style/genre variations"""
+            if not prompt:
+                return ''
+            import re
+            # Remove leading/trailing whitespace
+            normalized = prompt.strip()
+            # Normalize all whitespace (multiple spaces/newlines/tabs -> single space)
+            normalized = re.sub(r'\s+', ' ', normalized)
+            # Remove leading/trailing whitespace again after normalization
+            normalized = normalized.strip()
+            return normalized
+        
         exclude_indices = set()
         if exclude_song_ids:
             exclude_indices = {self.song_id_to_idx[sid] for sid in exclude_song_ids if sid in self.song_id_to_idx}
         
-        # Create temporary index for query
-        query_idx = len(self.prompt_embeddings)
-        temp_index = AnnoyIndex(self.prompt_embeddings.shape[1], 'angular')
-        for i in range(len(self.prompt_embeddings)):
-            temp_index.add_item(i, self.prompt_embeddings[i])
-        temp_index.add_item(query_idx, avg_embedding)
-        temp_index.build(self.n_trees)
+        # Track prompts seen across all candidates (prompt -> (candidate_idx, best_score))
+        # Used for early deduplication during aggregation
+        prompt_to_best_candidate = {}  # normalized_prompt -> (candidate_idx, best_score)
         
-        candidates = temp_index.get_nns_by_item(query_idx, n * 3, include_distances=True)
+        # For each seed song, find top-k most similar songs
+        for seed_idx in seed_indices:
+            seed_song_id = self.idx_to_song_id[seed_idx]
+            
+            # Find top-k most similar songs for this seed song (using Annoy index)
+            similar_indices, distances = self.song_index.get_nns_by_item(
+                seed_idx, 
+                top_k_per_seed + 1,  # +1 to exclude seed itself
+                include_distances=True
+            )
+            
+            # Track prompts seen for this seed (to avoid duplicates within same seed's results)
+            seen_prompts_for_seed = set()  # Track normalized prompts we've seen for this seed
+            
+            # Filter out seed song itself and excluded songs
+            for similar_idx, distance in zip(similar_indices, distances):
+                if similar_idx == seed_idx or similar_idx in exclude_indices:
+                    continue
+                
+                similar_song_id = self.idx_to_song_id[similar_idx]
+                if similar_song_id in song_ids:  # Skip other seed songs
+                    continue
+                
+                # Skip if exclude_same_artist is True and this candidate is from a seed artist
+                if exclude_same_artist and seed_artist_ids:
+                    similar_rows = self.songs_df[self.songs_df['song_id'] == similar_song_id]
+                    if not similar_rows.empty:
+                        candidate_artist = similar_rows.iloc[0].get('user_id')
+                        if candidate_artist and candidate_artist in seed_artist_ids:
+                            continue  # Skip songs from seed artists
+                
+                # Get prompt for this candidate (early deduplication)
+                similar_rows = self.songs_df[self.songs_df['song_id'] == similar_song_id]
+                if similar_rows.empty:
+                    continue
+                candidate_prompt = similar_rows.iloc[0].get('prompt', '')
+                normalized_prompt = normalize_prompt_for_dedup(candidate_prompt)
+                
+                # For this seed, skip if we've already seen this prompt
+                # (since results are sorted by similarity descending, first occurrence has highest score)
+                if normalized_prompt in seen_prompts_for_seed:
+                    continue  # Skip duplicate prompt within this seed's results
+                
+                # Convert distance to similarity score (1 - distance for angular distance)
+                similarity_score = 1.0 - distance
+                
+                if similarity_score > 0:  # Only positive similarities
+                    seen_prompts_for_seed.add(normalized_prompt)
+                    
+                    if similar_idx not in all_candidates:
+                        all_candidates[similar_idx] = []
+                    # Store: (similarity_score, seed_song_id)
+                    all_candidates[similar_idx].append((similarity_score, seed_song_id))
         
-        # Filter and format results
+        # Check if we found any candidates
+        if len(all_candidates) == 0:
+            if return_details:
+                print(f"⚠️  Prompt-Based: No similar songs found for seed songs. Falling back to popular songs")
+            return self._get_popular_songs(n)
+        
+        # Aggregate scores: sum similarities for items recommended by multiple seed songs
+        # Formula: score = Σ similarity(seed_j, candidate) for all seed songs j that recommend this candidate
+        # At the same time, deduplicate by prompt - keep only the best-scoring candidate for each prompt
+        song_scores = {}
+        prompt_to_candidate = {}  # normalized_prompt -> (candidate_idx, total_score)
+        
+        for candidate_idx, similarities_list in all_candidates.items():
+            # Sum of similarities (similar to Item CF formula)
+            total_score = sum([s[0] for s in similarities_list])
+            
+            # Get prompt for deduplication
+            candidate_song_id = self.idx_to_song_id[candidate_idx]
+            candidate_rows = self.songs_df[self.songs_df['song_id'] == candidate_song_id]
+            if candidate_rows.empty:
+                continue
+            candidate_prompt = candidate_rows.iloc[0].get('prompt', '')
+            normalized_prompt = normalize_prompt_for_dedup(candidate_prompt)
+            
+            # Skip empty prompts
+            if not normalized_prompt:
+                continue
+            
+            # If we've seen this prompt before, keep only the candidate with higher score
+            # If scores are equal, keep the first one (earlier in iteration)
+            if normalized_prompt in prompt_to_candidate:
+                existing_idx, existing_score = prompt_to_candidate[normalized_prompt]
+                if total_score > existing_score:
+                    # Replace with better-scoring candidate
+                    if existing_idx in song_scores:
+                        del song_scores[existing_idx]
+                    song_scores[candidate_idx] = total_score
+                    prompt_to_candidate[normalized_prompt] = (candidate_idx, total_score)
+                # else: keep existing candidate, skip this one (don't add to song_scores)
+            else:
+                # First time seeing this prompt
+                song_scores[candidate_idx] = total_score
+                prompt_to_candidate[normalized_prompt] = (candidate_idx, total_score)
+        
+        # Sort by score
+        sorted_candidates = sorted(song_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        # Filter excluded songs and convert to results (similar to Item CF)
+        # Also apply final prompt deduplication to ensure no duplicate prompts in final results
+        exclude_set = set(exclude_song_ids or [])
+        exclude_set.update(song_ids)
+        exclude_indices = {self.song_id_to_idx[sid] for sid in exclude_set if sid in self.song_id_to_idx}
+        
         results = []
-        seen = set(song_ids)
+        seen_prompts_final = set()  # Track prompts in final results
+        used_seed_songs = set()  # Track seed songs that have already contributed a recommendation
         
-        for idx, distance in zip(candidates[0], candidates[1]):
-            if idx == query_idx or idx in exclude_indices:
+        for candidate_idx, score in sorted_candidates:
+            if candidate_idx in exclude_indices:
                 continue
             
-            song_id = self.idx_to_song_id[idx]
-            if song_id in seen:
-                continue
+            candidate_song_id = self.idx_to_song_id[candidate_idx]
             
-            score = 1.0 - distance
-            results.append((song_id, score))
-            seen.add(song_id)
+            # Get seed songs that recommended this candidate
+            candidate_seed_songs = set()
+            if candidate_idx in all_candidates:
+                candidate_seed_songs = set([s[1] for s in all_candidates[candidate_idx]])
             
+            # Skip if all seed songs that recommended this candidate have already been used
+            # (Each seed song can only contribute one recommendation)
+            if candidate_seed_songs and candidate_seed_songs.issubset(used_seed_songs):
+                continue  # All seed songs for this candidate are already used
+            
+            # Final prompt deduplication check (safety net in case aggregation dedup missed something)
+            candidate_rows = self.songs_df[self.songs_df['song_id'] == candidate_song_id]
+            if not candidate_rows.empty:
+                candidate_data = candidate_rows.iloc[0]
+                candidate_prompt = candidate_data.get('prompt', '')
+                normalized_prompt = normalize_prompt_for_dedup(candidate_prompt)
+                
+                # Skip if we've already added a song with this prompt
+                if normalized_prompt and normalized_prompt in seen_prompts_final:
+                    continue  # Skip duplicate prompt
+                
+                # Skip if exclude_same_artist is True and this candidate is from a seed artist
+                if exclude_same_artist and seed_artist_ids:
+                    candidate_artist = candidate_data.get('user_id')  # In Suno, user_id represents the artist/creator
+                    if candidate_artist and candidate_artist in seed_artist_ids:
+                        continue  # Skip songs from seed artists
+                
+                if normalized_prompt:
+                    seen_prompts_final.add(normalized_prompt)
+            
+            # Add this recommendation and mark its seed songs as used
+            results.append((candidate_song_id, score))
+            used_seed_songs.update(candidate_seed_songs)
+            
+            # Take top N (matching Item CF and User CF behavior)
             if len(results) >= n:
                 break
-        
-        results.sort(key=lambda x: x[1], reverse=True)
         
         # Prepare details if requested
         details = None
@@ -297,10 +460,16 @@ class PromptBasedRecommender(BaseRecommender):
             for song_id, score in results:
                 song_idx = self.song_id_to_idx.get(song_id)
                 if song_idx is not None:
+                    # Find which seed songs recommended this candidate (deduplicate seed song IDs)
+                    seed_songs_that_recommended = []
+                    if song_idx in all_candidates:
+                        # Extract unique seed song IDs (in case same seed appears multiple times)
+                        seed_songs_that_recommended = list(set([s[1] for s in all_candidates[song_idx]]))
+                    
                     details[song_id] = {
                         'prompt_similarity': float(score),
-                        'annoy_distance': float(1.0 - score),
-                        'seed_songs_count': len(seed_indices),
+                        'seed_songs_count': len(seed_songs_that_recommended),
+                        'seed_song_ids': seed_songs_that_recommended,  # List of unique seed song IDs that recommended this
                     }
         
         return self._format_recommendations(
