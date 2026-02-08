@@ -5,6 +5,7 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 import joblib
+import time
 
 from .base import BaseRecommender
 from .item_cf import ItemBasedCFRecommender
@@ -466,6 +467,7 @@ class HybridRecommender(BaseRecommender):
         # ========================================================================
         # STAGE 1: RECALL - Candidate Retrieval
         # ========================================================================
+        stage1_start_time = time.time()
         
         # Channel 1: Item-based CF
         if return_details:
@@ -618,12 +620,15 @@ class HybridRecommender(BaseRecommender):
                     print(f"\n  📊 Top 5 Prompt-Based Recommendations:")
                     self._display_channel_top5(prompt_top5, "Prompt-Based")
         
+        stage1_elapsed = time.time() - stage1_start_time
         if return_details:
             print(f"\n📊 Recall Summary: {len(all_recommendations)} unique candidates retrieved")
+            print(f"⏱️  Stage 1 (Recall) elapsed time: {stage1_elapsed:.3f}s")
         
         # ========================================================================
         # STAGE 2: COARSE RANKING - Quality Filter
         # ========================================================================
+        stage2_start_time = time.time()
         if return_details:
             print("\n" + "="*80)
             print("⚖️  STAGE 2: COARSE RANKING - Quality Filter")
@@ -688,12 +693,15 @@ class HybridRecommender(BaseRecommender):
         # Sort by recall score
         coarse_scores.sort(key=lambda x: x['recall_score'], reverse=True)
         
+        stage2_elapsed = time.time() - stage2_start_time
         if return_details:
             print(f"  ✅ Coarse Ranking: {len(coarse_scores)} candidates after quality filtering and deduplication")
+            print(f"⏱️  Stage 2 (Coarse Ranking) elapsed time: {stage2_elapsed:.3f}s")
         
         # ========================================================================
         # STAGE 3: FINE RANKING - CTR Prediction
         # ========================================================================
+        stage3_start_time = time.time()
         if return_details:
             print("\n" + "="*80)
             print("🎯 STAGE 3: FINE RANKING - CTR Prediction")
@@ -763,12 +771,15 @@ class HybridRecommender(BaseRecommender):
         # Sort by fine score
         fine_scores.sort(key=lambda x: x['fine_score'], reverse=True)
         
+        stage3_elapsed = time.time() - stage3_start_time
         if return_details:
             print(f"  ✅ Fine Ranking: {len(fine_scores)} candidates scored with DIN (CTR prediction)")
+            print(f"⏱️  Stage 3 (Fine Ranking) elapsed time: {stage3_elapsed:.3f}s")
         
         # ========================================================================
         # STAGE 4: RE-RANKING - Music Flamingo
         # ========================================================================
+        stage4_start_time = time.time()
         if self.use_music_flamingo and self.music_flamingo_scorer is not None:
             if return_details:
                 print("\n" + "="*80)
@@ -780,9 +791,12 @@ class HybridRecommender(BaseRecommender):
                 fine_scores[:top_k_for_rerank],
                 top_k=top_k_for_rerank
             )
+            stage4_elapsed = time.time() - stage4_start_time
             if return_details:
                 print(f"  ✅ Re-ranked {len(final_scores)} candidates with Music Flamingo")
+                print(f"⏱️  Stage 4 (Re-ranking) elapsed time: {stage4_elapsed:.3f}s")
         else:
+            stage4_elapsed = 0.0  # Stage 4 skipped
             final_scores = fine_scores
         
         # Take top N
@@ -810,8 +824,22 @@ class HybridRecommender(BaseRecommender):
             if 'song_id' in rec:
                 rec['suno_url'] = f"https://suno.com/song/{rec['song_id']}"
         
+        total_elapsed = stage1_elapsed + stage2_elapsed + stage3_elapsed + stage4_elapsed
         if return_details:
             print(f"\n✅ Final Recommendations: {len(final_scores)} songs selected")
+            print(f"\n⏱️  Total Recommendation Time: {total_elapsed:.3f}s")
+            if total_elapsed > 0:
+                print(f"   - Stage 1 (Recall): {stage1_elapsed:.3f}s ({stage1_elapsed/total_elapsed*100:.1f}%)")
+                print(f"   - Stage 2 (Coarse Ranking): {stage2_elapsed:.3f}s ({stage2_elapsed/total_elapsed*100:.1f}%)")
+                print(f"   - Stage 3 (Fine Ranking): {stage3_elapsed:.3f}s ({stage3_elapsed/total_elapsed*100:.1f}%)")
+                if stage4_elapsed > 0:
+                    print(f"   - Stage 4 (Re-ranking): {stage4_elapsed:.3f}s ({stage4_elapsed/total_elapsed*100:.1f}%)")
+            else:
+                print(f"   - Stage 1 (Recall): {stage1_elapsed:.3f}s")
+                print(f"   - Stage 2 (Coarse Ranking): {stage2_elapsed:.3f}s")
+                print(f"   - Stage 3 (Fine Ranking): {stage3_elapsed:.3f}s")
+                if stage4_elapsed > 0:
+                    print(f"   - Stage 4 (Re-ranking): {stage4_elapsed:.3f}s")
         
         return final_scores
     
