@@ -9,7 +9,8 @@ import joblib
 from pathlib import Path
 
 from .base import BaseRecommender
-from ..utils.embeddings import TextEmbedder, TagEmbedder, PromptEmbedder
+# TextEmbedder, TagEmbedder, PromptEmbedder removed - sentence-transformers no longer used
+# from ..utils.embeddings import TextEmbedder, TagEmbedder, PromptEmbedder
 
 
 class ItemContentBasedRecommender(BaseRecommender):
@@ -61,11 +62,15 @@ class ItemContentBasedRecommender(BaseRecommender):
         self.songs_df = songs_df.copy()
         self.user_history = user_history or {}  # Store for last-n support
         
-        print(f"  → Initializing embedders (model: {self.embedding_model})...")
-        # Initialize embedders (prompt embedder not needed here, handled by Channel 3)
-        base_embedder = TextEmbedder(self.embedding_model)
-        self.tag_embedder = TagEmbedder(base_embedder)
-        self.embedding_dim = base_embedder.embedding_dim
+        # NOTE: sentence-transformers has been removed. This recommender is not used in hybrid system.
+        # If you need this recommender, install sentence-transformers and uncomment the imports.
+        raise NotImplementedError(
+            "ItemContentBasedRecommender requires sentence-transformers which has been removed. "
+            "This recommender is not used in the hybrid system. If you need it, install sentence-transformers."
+        )
+        # base_embedder = TextEmbedder(self.embedding_model)
+        # self.tag_embedder = TagEmbedder(base_embedder)
+        # self.embedding_dim = base_embedder.embedding_dim
         
         print(f"  → Generating embeddings for {len(songs_df)} songs...")
         print(f"     Generating tag embeddings (prompt embeddings handled separately in Channel 3)...")
@@ -491,8 +496,9 @@ class ItemContentBasedRecommender(BaseRecommender):
             recommender.song_index = AnnoyIndex(recommender.embedding_dim, 'angular')
             recommender.song_index.load(data['index_path'])
         
-        base_embedder = TextEmbedder(recommender.embedding_model)
-        recommender.tag_embedder = TagEmbedder(base_embedder)
+        # sentence-transformers fallback removed - CLAP is required
+        # base_embedder = TextEmbedder(recommender.embedding_model)
+        # recommender.tag_embedder = TagEmbedder(base_embedder)
         # prompt_embedder removed - handled by Channel 3 (PromptBasedRecommender)
         
         recommender.is_fitted = True

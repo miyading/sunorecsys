@@ -5,11 +5,11 @@ scikit-learn  # Version will be determined by dependencies
 scipy>=1.10.0
 
 # Embeddings and ML
-sentence-transformers>=2.2.0
+# PyTorch: CLAP works with PyTorch 2.2.2 (current stable version)
 torch==2.2.2
 torchaudio
 torchvision==0.17.2
-transformers>=4.30.0
+transformers # currently 4.40.2
 
 # Audio processing (for audio embeddings with CLAP)
 librosa>=0.10.0

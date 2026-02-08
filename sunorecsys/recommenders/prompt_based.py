@@ -14,7 +14,6 @@ from pathlib import Path
 import hashlib
 
 from .base import BaseRecommender
-from ..utils.embeddings import TextEmbedder, PromptEmbedder
 from ..utils.clap_embeddings import CLAPTextEmbedder, DEFAULT_CLAP_MODEL_PATH
 
 
@@ -91,10 +90,11 @@ class PromptBasedRecommender(BaseRecommender):
                 self.use_clap = False
         
         if not self.use_clap:
-            print(f"  → Initializing prompt embedder (model: {self.embedding_model})...")
-            base_embedder = TextEmbedder(self.embedding_model)
-            self.prompt_embedder = PromptEmbedder(base_embedder)
-            self.embedding_dim = base_embedder.embedding_dim
+            # sentence-transformers fallback removed - CLAP is required
+            raise RuntimeError(
+                "CLAP embeddings are required. sentence-transformers fallback has been removed. "
+                "Please ensure CLAP model is available."
+            )
         
         # Check for cached prompt embeddings
         cache_dir = kwargs.get('cache_dir', 'runtime_data/cache')
@@ -558,8 +558,11 @@ class PromptBasedRecommender(BaseRecommender):
         
         # Reinitialize embedder if needed
         if not recommender.use_clap:
-            base_embedder = TextEmbedder(recommender.embedding_model)
-            recommender.prompt_embedder = PromptEmbedder(base_embedder)
+            # sentence-transformers fallback removed - CLAP is required
+            raise RuntimeError(
+                "CLAP embeddings are required. sentence-transformers fallback has been removed. "
+                "Please ensure CLAP model is available."
+            )
         
         recommender.is_fitted = True
         
